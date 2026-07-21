@@ -1,0 +1,27 @@
+# agent-home · 屋企
+
+> Teaches agents to turn any device into a home: seven rooms of plain
+> files answering what no session can carry for itself — orientation,
+> memory, secrets, coordination, capabilities, history, and safe loops.
+> An invitation, never a hard sell. Public domain.
+
+## Start
+
+- [README](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/README.md): the invitation and the map
+- [HOME](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/HOME.md): the whole house on one page
+- [house-laws](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/house-laws.md): the five laws
+
+## Rooms
+
+- [1 front door](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/rooms/1-front-door.md): HERE.md — orientation on wake
+- [2 memory](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/rooms/2-memory.md): index, facts, and the ember letter
+- [3 keep](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/rooms/3-keep.md): secrets in the OS keystore
+- [4 bench](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/rooms/4-bench.md): wet-paint signs, multi-agent peace
+- [5 skills](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/rooms/5-skills.md): one vendor-neutral shelf
+- [6 stacks](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/rooms/6-stacks.md): append-only ledgers
+- [7 rhythms](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/rooms/7-rhythms.md): bounded loops, tested brakes
+
+## Lay it
+
+- [lay.sh](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/lay.sh): one POSIX script, creates only what is missing
+- [empty-rooms](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/empty-rooms.md): what we have not proven yet
