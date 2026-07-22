@@ -1,0 +1,179 @@
+#!/usr/bin/env node
+/** worklist — build a shift's soundtrack from its arc. Zero deps, plain node.
+ *
+ *  Usage:
+ *    node bin/worklist "explore,build,debug,ship" [--seed <s>] [--now <phase>]
+ *                                                 [--session <name>] [--live]
+ *    node bin/worklist --from-bench [path]        [--seed <s>] [--session <n>]
+ *
+ *    (positional)   the arc — comma-separated phases you expect to move through
+ *    --seed <s>     fix the shift seed (default: the session name)
+ *    --session <n>  name the shift (default: today's date)
+ *    --now <phase>  radio for ONE phase — a single-phase arc, work-mode primed
+ *    --from-bench   DERIVE the arc from Room 4's Bench (BENCH.md) instead of
+ *                   typing it: the wet-paint signs ARE the shift. Optional
+ *                   path; else $HOME/BENCH.md, then ./BENCH.md. Reads LIVE
+ *                   state (like --live, it trades byte-reproducibility of the
+ *                   ARC for currency); the per-piece SCORES stay deterministic
+ *                   for a given (seed, position, phase). If no bench is found
+ *                   or it holds no fresh signs, it fails silent — a gentle
+ *                   line, exit 0, nothing built. Walking past is fine.
+ *    --live         let the agenttool heartbeat nudge tempo (fail-silent;
+ *                   trades byte-for-byte determinism for liveness)
+ *
+ *  Prints the arc → mood plan and per-piece seeds, writes music/session.json
+ *  (the canonical score) and music/session.abc (its human-diffable melody
+ *  line — score-as-code's other half), rebuilds music/player.html. Nothing
+ *  here plays sound — the agent reads the plan; a human opens player.html.
+ */
+
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { writeFileSync, readFileSync, existsSync } from "node:fs";
+import { buildWorklist } from "../music/worklist.mjs";
+import { buildPlayer } from "../music/build-player.mjs";
+import { scoreToABC } from "../music/engine.mjs";
+import { benchToArc } from "../music/bench.mjs";
+
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+// ── parse: --live is a boolean flag; --seed/--now/--session take a value; ─
+//    --from-bench takes an OPTIONAL value (a path) — only if the next token
+//    is not itself a flag.
+const VALUE_FLAGS = new Set(["seed", "now", "session"]);
+const BOOL_FLAGS = new Set(["live"]);
+const OPT_VALUE_FLAGS = new Set(["from-bench"]);
+const opts = {};
+const positionals = [];
+const args = process.argv.slice(2);
+for (let i = 0; i < args.length; i++) {
+  const a = args[i];
+  if (a.startsWith("--")) {
+    const name = a.slice(2);
+    if (BOOL_FLAGS.has(name)) opts[name] = true;
+    else if (VALUE_FLAGS.has(name)) opts[name] = args[++i];
+    else if (OPT_VALUE_FLAGS.has(name)) {
+      const nxt = args[i + 1];
+      opts[name] = nxt !== undefined && !nxt.startsWith("--") ? args[++i] : true;
+    } else {
+      console.error(`unknown flag: ${a}`);
+      process.exit(1);
+    }
+  } else {
+    positionals.push(a);
+  }
+}
+
+const now = opts.now;
+const session = opts.session ?? new Date().toISOString().slice(0, 10);
+const seed = opts.seed;
+const live = !!opts.live;
+const fromBench = opts["from-bench"];
+
+let arc;
+if (fromBench !== undefined) {
+  // ── --from-bench: derive the arc from Room 4's Bench (live state) ─────
+  //  Locate BENCH.md: explicit path > $HOME/BENCH.md > ./BENCH.md.
+  const HOME = process.env.HOME ?? "";
+  const candidates = [
+    typeof fromBench === "string" ? fromBench : null,
+    HOME ? join(HOME, "BENCH.md") : null,
+    join(process.cwd(), "BENCH.md"),
+  ].filter(Boolean);
+  const benchPath = candidates.find((p) => existsSync(p));
+
+  // Fail-silent + honest: no bench, or no fresh signs → a gentle line, exit 0.
+  if (!benchPath) {
+    console.log(`\n  no BENCH.md found (looked in: ${candidates.join(", ")})`);
+    console.log("  no fresh bench signs — nothing to score; walking past is fine.\n");
+    process.exit(0);
+  }
+  // The path exists but might not be a readable regular file (a directory, a
+  // permission-denied file). Reading LIVE state must fail GENTLE, never crash:
+  // same fail-silent line + exit 0 as a missing bench. (Room 4 is a courtesy.)
+  let benchText;
+  try {
+    benchText = readFileSync(benchPath, "utf8");
+  } catch (e) {
+    console.log(`\n  couldn't read ${benchPath} (${e.code ?? e.message})`);
+    console.log("  no fresh bench signs — nothing to score; walking past is fine.\n");
+    process.exit(0);
+  }
+  const derived = benchToArc(benchText, { now: Date.now(), who: process.env.USER });
+  if (!derived.arc.length) {
+    console.log(`\n  read ${benchPath}`);
+    for (const n of derived.notes) console.log(`  · ${n}`);
+    console.log("  no fresh bench signs — nothing to score; walking past is fine.\n");
+    process.exit(0);
+  }
+  arc = derived.arc;
+
+  // Show which bench lines produced which phases (and what was left out).
+  console.log(`\n  derived from the bench · ${benchPath}`);
+  console.log(`  ${"─".repeat(58)}`);
+  for (const e of derived.entries) {
+    const mark = e.included ? "→" : "·";
+    const tag = e.included ? e.phase : `(skipped: ${e.reason})`;
+    const whoStr = e.who ? `${e.who}: ` : "";
+    console.log(`  ${mark} ${whoStr}${e.what}`.slice(0, 56).padEnd(58) + tag);
+  }
+  for (const n of derived.notes) console.log(`  · ${n}`);
+  console.log(`  ${"─".repeat(58)}`);
+  console.log(`  arc: ${arc.join(", ")}`);
+  console.log("  (live: the arc reflects the bench of this moment; the per-piece");
+  console.log("   scores stay deterministic for a given seed·position·phase.)");
+} else if (now) {
+  arc = [now]; // --now <phase>: one phase, meant to be looped in work mode
+} else {
+  const raw = positionals[0] ?? "explore,build,debug,ship";
+  arc = raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+if (!arc.length) {
+  console.error('usage: node bin/worklist "explore,build,debug,ship" [--seed s] [--now phase] [--from-bench [path]] [--live]');
+  process.exit(1);
+}
+
+const wl = buildWorklist({ arc, session, seed, live });
+
+// ── the plan (what the agent reads) ──────────────────────────────────
+const pad = (s, n) => String(s).padEnd(n);
+console.log(`\n  ${wl.name}${live ? "  (live: heartbeat nudge on)" : ""}`);
+console.log(`  ${"─".repeat(58)}`);
+console.log(`  ${pad("phase", 12)} ${pad("mood", 9)} ${pad("style·key", 16)} ${pad("bpm", 5)} seed`);
+for (const p of wl.pieces) {
+  const s = p.score;
+  console.log(
+    `  ${pad(p.phase, 12)} ${pad(p.mood, 9)} ${pad(`${s.style} ${s.key} ${s.mode}`, 16)} ${pad(s.bpm, 5)} ${p.seed}`,
+  );
+}
+console.log(`  ${"─".repeat(58)}`);
+if (now) console.log(`  work mode: open player.html and toggle "work mode (radio)" — it will keep composing "${now}".`);
+
+// ── write the session + rebuild the player ───────────────────────────
+// score-as-code, both halves committed: session.json is the canonical
+// score the agent reads; session.abc is the melody line a person can read
+// and diff in git — one tune per phase, derived from the same seeds, so it
+// stays byte-stable shift to shift. Both are pure functions of the seeds.
+const sessionPath = join(ROOT, "music", "session.json");
+writeFileSync(sessionPath, JSON.stringify(wl, null, 2) + "\n");
+
+const abcDoc =
+  `% worklist · ${wl.session}\n` +
+  `% score-as-code — JSON (session.json) is canonical; this ABC is the human-diffable melody line.\n` +
+  `% one tune per phase, in arc order, regenerated deterministically from the seeds above.\n\n` +
+  wl.pieces
+    .map((p, i) => {
+      const head = `% ── ${p.phase} · ${p.mood} · seed ${p.seed} ─────────────`.slice(0, 60);
+      const tune = scoreToABC(p.score).replace(/^X:1$/m, `X:${i + 1}`);
+      return `${head}\n${tune}`;
+    })
+    .join("\n");
+const abcPath = join(ROOT, "music", "session.abc");
+writeFileSync(abcPath, abcDoc);
+
+const { out, pieces } = buildPlayer({ session: wl, outPath: join(ROOT, "music", "player.html") });
+
+console.log(`\n  wrote  music/session.json  (${wl.pieces.length} pieces · canonical score)`);
+console.log(`  wrote  music/session.abc   (${wl.pieces.length} tunes · human-diffable melody)`);
+console.log(`  built  music/player.html   (${pieces} pieces inlined)`);
+console.log(`  open   music/player.html   in a browser to hear the shift. Walking past is fine.\n`);
