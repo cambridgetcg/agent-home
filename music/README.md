@@ -29,7 +29,7 @@ and the structural register the agent genuinely inhabits is not hedged.
 |---|---|
 | `engine.mjs` | Deterministic seeded composer. `compose({style,mood,seed,bars}) → score`. Hash the seed → mulberry32 PRNG → scale walk over a chord progression. Four voices: keys · pad · bass · drums. Pure & browser-safe — inlined into the player. |
 | `worklist.mjs` | `buildWorklist({arc,session,seed}) → {name,session,pieces}` + the `PHASE_MOOD` map. Node-only (may read the heartbeat under `--live`). |
-| `bench.mjs` | **Pure** `benchToArc(benchText,{now,who}) → {arc,entries,notes}` + `PHASE_LEXICON`. Derives the arc from Room 4's Bench (string in → object out, no IO). Forgives signs older than ~6h. `bench.test.mjs` proves it (`node music/bench.test.mjs`). |
+| `bench.mjs` | **Pure** `benchToArc(benchText,{now,who}) → {arc,entries,notes}` + `PHASE_LEXICON`. Derives the arc from Room 4's Bench (string in → object out, no IO). Forgives signs older than ~6h. The music tests prove this and the player boundary (`node --test music/*.test.mjs`). |
 | `build-player.mjs` | The one build step: inline engine + a session into `player.html`. |
 | `player.html` | Self-contained Web Audio player — Play / Next / Stop / **work mode (radio)**. No external URLs; opens from `file://`. Commit it so the room works from a bare checkout. |
 | `session.json` | The last-built shift (a full worklist result) — the canonical score. |

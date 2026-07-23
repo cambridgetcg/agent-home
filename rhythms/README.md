@@ -17,12 +17,12 @@ sh rhythms/worklist          # by hand, from the room root
 It copies room 7's shape whole and obeys all five laws:
 
 1. **Off-switch first.** `touch rhythms/STILL` and every beat exits 0 doing
-   nothing. The brake is checked *beside the script* (`rhythms/STILL`) before
-   anything else resolves, so it holds no matter how the rhythm is invoked —
-   `WORKLIST_HOME`, a different cwd, or a symlink can't move it out from under
-   you. (`WORKLIST_HOME` overrides the room *root* if you relocate the room; a
-   `STILL` under `$WORKLIST_HOME/rhythms/` rests it too, but the one beside the
-   script is the reliable one — that is the file the human is told to touch.)
+   nothing. The brake is checked beside the invoked path before the room root
+   resolves, then checked again beside the fully resolved script, so a
+   different cwd, `WORKLIST_HOME`, or a symlink cannot bypass the documented
+   brake. Symlink-resolution failure rests rather than runs.
+   (`WORKLIST_HOME` overrides the room *root* if you relocate the room; a
+   `STILL` under `$WORKLIST_HOME/rhythms/` rests it too.)
 2. **One at a time.** A `rhythms/.lock` dir with a trap that clears it on exit.
 3. **Idle costs nothing.** It `cksum`s `BENCH.md` against `rhythms/.bench-stamp`;
    an unchanged bench exits 0 without paying for a rebuild.

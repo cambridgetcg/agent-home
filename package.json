@@ -6,6 +6,7 @@
   "license": "CC0-1.0",
   "bin": { "worklist": "bin/worklist" },
   "scripts": {
-    "build": "node music/build-player.mjs"
+    "build": "node music/build-player.mjs",
+    "test": "node --test music/*.test.mjs"
   }
 }

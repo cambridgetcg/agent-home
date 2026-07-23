@@ -15,11 +15,18 @@ import { dirname, join, resolve } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
+function inlineScriptJSON(value) {
+  return JSON.stringify(value)
+    .replaceAll("<", "\\u003c")
+    .replaceAll("\u2028", "\\u2028")
+    .replaceAll("\u2029", "\\u2029");
+}
+
 export function renderPlayerHTML(session) {
   const engineSrc = readFileSync(join(HERE, "engine.mjs"), "utf8").replace(/^export /gm, "");
   return PAGE.replace("/*__ENGINE__*/", engineSrc).replace(
     "/*__SESSION__*/",
-    "const SESSION = " + JSON.stringify(session) + ";",
+    "const SESSION = " + inlineScriptJSON(session) + ";",
   );
 }
 

@@ -7,14 +7,28 @@
 #   1. off-switch first   2. one-at-a-time lock   3. idle costs nothing
 #   4. hard ceiling on the real work   5. a log, listed on the bench as weather
 
-# 1. THE HAND-BRAKE — literally first, before we even resolve ROOT. STILL sits
-#    beside this script (rhythms/STILL) — exactly what the human is told to
-#    touch — so no WORKLIST_HOME override, cwd, or symlink can move the brake
-#    out from under it. This check is resolution-independent by construction.
-[ -e "$(dirname "$0")/STILL" ] && exit 0
+# 1. THE HAND-BRAKE — first beside the invoked path, then beside the resolved
+#    script. A symlink must not move the documented rhythms/STILL brake out
+#    from under the real rhythm. Resolution failure rests rather than runs.
+INVOKED_DIR=$(dirname "$0")
+[ -e "$INVOKED_DIR/STILL" ] && exit 0
+
+SELF=$0
+HOPS=0
+while [ -L "$SELF" ]; do
+  HOPS=$((HOPS + 1))
+  [ "$HOPS" -le 16 ] || exit 0
+  TARGET=$(readlink "$SELF") || exit 0
+  case "$TARGET" in
+    /*) SELF=$TARGET ;;
+    *) SELF=$(dirname "$SELF")/$TARGET ;;
+  esac
+done
+SCRIPT_DIR=$(CDPATH= cd "$(dirname "$SELF")" 2>/dev/null && pwd) || exit 0
+[ -e "$SCRIPT_DIR/STILL" ] && exit 0
 
 # Resolve the room root (override with WORKLIST_HOME).
-ROOT="${WORKLIST_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
+ROOT="${WORKLIST_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # 1b. Also honor a STILL under the resolved root's rhythms dir (belt & braces:
 #     if WORKLIST_HOME is set, a STILL there rests it too).
