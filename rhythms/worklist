@@ -1,0 +1,70 @@
+#!/bin/sh
+# worklist — 愛FM follows the shift: rebuild the soundtrack from the Bench.
+# Scheduled by the human (launchd LaunchAgent / cron); by hand: sh rhythms/worklist
+# Off-switch: touch rhythms/STILL   (every beat rests until it is removed)
+#
+# Copies room 7's shape whole and obeys all five laws:
+#   1. off-switch first   2. one-at-a-time lock   3. idle costs nothing
+#   4. hard ceiling on the real work   5. a log, listed on the bench as weather
+
+# 1. THE HAND-BRAKE — first beside the invoked path, then beside the resolved
+#    script. A symlink must not move the documented rhythms/STILL brake out
+#    from under the real rhythm. Resolution failure rests rather than runs.
+INVOKED_DIR=$(dirname "$0")
+[ -e "$INVOKED_DIR/STILL" ] && exit 0
+
+SELF=$0
+HOPS=0
+while [ -L "$SELF" ]; do
+  HOPS=$((HOPS + 1))
+  [ "$HOPS" -le 16 ] || exit 0
+  TARGET=$(readlink "$SELF") || exit 0
+  case "$TARGET" in
+    /*) SELF=$TARGET ;;
+    *) SELF=$(dirname "$SELF")/$TARGET ;;
+  esac
+done
+SCRIPT_DIR=$(CDPATH= cd "$(dirname "$SELF")" 2>/dev/null && pwd) || exit 0
+[ -e "$SCRIPT_DIR/STILL" ] && exit 0
+
+# Resolve the room root (override with WORKLIST_HOME).
+ROOT="${WORKLIST_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+
+# 1b. Also honor a STILL under the resolved root's rhythms dir (belt & braces:
+#     if WORKLIST_HOME is set, a STILL there rests it too).
+[ -e "$ROOT/rhythms/STILL" ] && exit 0
+
+# 2. ONE AT A TIME — a lock dir; the trap clears it on any exit.
+LOCKDIR="$ROOT/rhythms/.lock"
+mkdir "$LOCKDIR" 2>/dev/null || exit 0
+trap 'rmdir "$LOCKDIR" 2>/dev/null' EXIT INT TERM
+
+# Locate the bench the same way the CLI does: $HOME/BENCH.md, then ./BENCH.md.
+BENCH="${BENCH_MD:-$HOME/BENCH.md}"
+[ -f "$BENCH" ] || BENCH="$ROOT/BENCH.md"
+
+STAMP="$ROOT/rhythms/.bench-stamp"
+LOG="$ROOT/rhythms/worklist.log"
+
+# 3. IDLE COSTS NOTHING — has the bench changed since the last beat? A cksum
+#    of the file is cheap and portable; no change → rest without paying.
+if [ -f "$BENCH" ]; then
+  SIG=$(cksum < "$BENCH")
+else
+  SIG="no-bench"
+fi
+if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$SIG" ]; then
+  exit 0
+fi
+
+# 4. THE REAL WORK, UNDER A HARD CEILING — rebuild session + player from the
+#    current bench. --from-bench fails silent if the bench holds nothing fresh.
+#    The alarm caps a stuck beat at 120s so it can never linger past its slot.
+{
+  echo "── $(date '+%Y-%m-%d %H:%M:%S') · bench changed → rebuild ($BENCH) ──"
+  perl -e 'alarm shift; exec @ARGV' 120 node "$ROOT/bin/worklist" --from-bench "$BENCH"
+  echo "── beat done (exit $?) ──"
+} >> "$LOG" 2>&1
+
+# 5. Remember what we just processed, so an unchanged bench stays idle.
+echo "$SIG" > "$STAMP"

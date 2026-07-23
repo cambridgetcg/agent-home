@@ -62,3 +62,5 @@ printf 'Off-switch: `touch rhythms/STILL` rests every rhythm. Test it.\n' > rhyt
 ```
 
 Then write your first rhythm from the shape above — and drill the brake.
+
+> Optional neighbour: [Room 8 · Music](8-music.md) — a work-session soundtrack, same law: an off-switch on everything.

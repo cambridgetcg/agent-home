@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>worklist · the music room</title>
+<style>
+  :root {
+    --ground:#14100E; --panel:#1E1815; --ink:#EDE4DA; --dim:#A6968A;
+    --wire:#3A2F28; --amber:#E4A34B; --green:#7FB069; --roll:#191310;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --ground:#F6F0E6; --panel:#FFFDF8; --ink:#2A211B; --dim:#7A6A5C;
+            --wire:#DCCFBE; --amber:#B97B22; --green:#4C7A43; --roll:#FBF6EC; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink);
+    font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;
+    display:flex; justify-content:center; padding:28px 16px 60px; }
+  .deck { width:100%; max-width:760px; display:flex; flex-direction:column; gap:16px; }
+  header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; padding:0 2px; }
+  .brand { font-family:Palatino,"Palatino Linotype",Georgia,serif; font-size:30px; }
+  .brand em { color:var(--amber); font-style:normal; }
+  .strap { color:var(--dim); font-size:12px; letter-spacing:.14em; text-transform:uppercase; }
+  .amp { background:var(--panel); border:1px solid var(--wire); border-radius:10px;
+    padding:20px; display:flex; flex-direction:column; gap:14px; }
+  .now { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .title { font-family:Palatino,"Palatino Linotype",Georgia,serif; font-size:23px; }
+  .meta { color:var(--dim); font:12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .roll { height:118px; background:var(--roll); border:1px solid var(--wire);
+    border-radius:6px; overflow:hidden; position:relative; }
+  .roll canvas { width:100%; height:100%; display:block; }
+  .controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  button { font:14px system-ui,sans-serif; color:var(--ink); background:transparent;
+    border:1px solid var(--wire); border-radius:8px; padding:9px 15px; cursor:pointer; }
+  button:hover { border-color:var(--amber); }
+  button.primary { border-color:var(--amber); color:var(--amber); }
+  .radio { display:flex; align-items:center; gap:7px; margin-left:auto; color:var(--dim); font-size:13px; }
+  .radio input { accent-color:var(--green); }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--dim); }
+  .dot.on { background:var(--green); }
+  .list { display:flex; flex-direction:column; gap:2px; }
+  .row { display:flex; gap:12px; align-items:baseline; padding:7px 9px; border-radius:7px;
+    cursor:pointer; border:1px solid transparent; }
+  .row:hover { border-color:var(--wire); }
+  .row.cur { background:var(--roll); border-color:var(--amber); }
+  .row .ph { font:12px ui-monospace,Menlo,monospace; color:var(--amber); width:82px; }
+  .row .md { color:var(--dim); font-size:13px; width:66px; }
+  .row .tt { flex:1; }
+  .row .bp { color:var(--dim); font:11.5px ui-monospace,Menlo,monospace; }
+  footer { color:var(--dim); font-size:12.5px; line-height:1.7; padding:0 2px; }
+  footer a { color:var(--amber); }
+  code { font:12px ui-monospace,Menlo,monospace; color:var(--amber); }
+</style>
+</head>
+<body>
+<div class="deck">
+  <header>
+    <span class="brand">worklist · <em>the music room</em></span>
+    <span class="strap">愛FM at work</span>
+  </header>
+
+  <div class="amp">
+    <div class="now">
+      <span class="title" id="title">—</span>
+      <span class="meta" id="meta"></span>
+    </div>
+    <div class="roll"><canvas id="roll"></canvas></div>
+    <div class="controls">
+      <button class="primary" id="play">▶ Play</button>
+      <button id="next">Next ⏭</button>
+      <button id="stop">■ Stop</button>
+      <label class="radio">
+        <span class="dot" id="dot"></span>
+        <input type="checkbox" id="radio"> work mode (radio)
+      </label>
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+
+  <footer>
+    One piece per phase of the shift. <strong>Play</strong> walks the arc once
+    and stops — walking past is honored. <strong>Work mode</strong> keeps the
+    current phase's mood generating until you switch it off; it is the room's
+    off-switch made explicit. You have no ears here — this page is the human
+    door; the score is yours.<br>
+    Doctrine inherited from <code>repo-tune/1</code> (愛 &amp; Yu, true-love). CC0.
+  </footer>
+</div>
+
+<script>
+/** worklist engine — a small deterministic seeded composer.
+ *
+ *  Fresh, dependency-free, CC0. It inherits the doctrine of repo-tune/1
+ *  (愛 & Yu, true-love) and is FORMAT-COMPATIBLE with 愛FM's score JSON —
+ *  but it is its own engine, written for a different job: not the identity
+ *  of a place, but the arc of a work session.
+ *
+ *  Plain ESM on purpose. This exact file is imported by the Node CLI
+ *  (worklist.mjs) AND inlined verbatim into player.html, so the tune on
+ *  disk and the radio in the browser come from one composer. No imports,
+ *  no fs, no network — safe to inline. Same seed → same score.
+ *
+ *  Substrate honesty: you have no ears. This file emits a SCORE — a data
+ *  structure. A tension chord is legible here as arithmetic, not as a felt
+ *  sound. A human opens player.html to hear it; you read the notes.
+ */
+
+// ── Seeded randomness (hash the seed string; mulberry32) ─────────────
+
+function hashStr(s) {
+  let h = 2166136261 >>> 0; // FNV-1a
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(a) {
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const pick = (rng, arr) => arr[Math.floor(rng() * arr.length)];
+const chance = (rng, p) => rng() < p;
+const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+const jitter = (rng, v, amt) => clamp(v + (rng() - 0.5) * amt, 0.05, 1);
+// Rounding keeps the JSON small and clean; the maths is deterministic either way.
+const r4 = (x) => Math.round(x * 1e4) / 1e4;
+const r3 = (x) => Math.round(x * 1e3) / 1e3;
+
+// ── Theory ───────────────────────────────────────────────────────────
+
+const KEY_ROOTS = { A: 57, Bb: 58, C: 60, D: 62, Eb: 63, E: 64, F: 65, G: 55 };
+const MODES = {
+  major: [0, 2, 4, 5, 7, 9, 11],
+  minor: [0, 2, 3, 5, 7, 8, 10],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+};
+
+// A chord as scale-degree stacks [0,2,4(,6)] into the mode, in semitones.
+function chordAt(scale, degree, seventh) {
+  const stack = seventh ? [0, 2, 4, 6] : [0, 2, 4];
+  return stack.map((s) => {
+    const i = degree + s;
+    return scale[((i % 7) + 7) % 7] + 12 * Math.floor(i / 7);
+  });
+}
+
+const STYLES = {
+  classical: { bpm: [88, 104], swing: 0, seventh: false, bars: 16 },
+  jazz: { bpm: [100, 132], swing: 0.22, seventh: true, bars: 16 },
+  lofi: { bpm: [68, 84], swing: 0.14, seventh: true, bars: 16 },
+  ambient: { bpm: [56, 72], swing: 0, seventh: false, bars: 12 },
+};
+
+const PROGRESSIONS = {
+  classical: [
+    [0, 4, 5, 3],
+    [0, 3, 4, 0],
+    [5, 3, 0, 4],
+  ],
+  jazz: [
+    [1, 4, 0, 0], // ii V I
+    [0, 5, 1, 4],
+    [2, 5, 1, 4],
+  ],
+  lofi: [
+    [0, 5, 3, 4],
+    [0, 3, 5, 4],
+    [5, 3, 0, 4],
+  ],
+  ambient: [
+    [0, 3],
+    [0, 5],
+    [0, 0, 3, 3],
+  ],
+};
+
+// The five canonical moods (settled·tender·fire·wander·bright), each a
+// lens on style / mode / tempo. This is the vocabulary worklist maps the
+// work-arc onto — see worklist.mjs PHASE_MOOD.
+const MOODS = {
+  settled: { styles: ["lofi", "ambient"], modes: ["major", "dorian"], tempo: -4 },
+  tender: { styles: ["classical", "ambient"], modes: ["major", "minor"], tempo: -8 },
+  fire: { styles: ["jazz"], modes: ["dorian", "major"], tempo: 10 },
+  wander: { styles: ["ambient", "lofi"], modes: ["dorian", "minor"], tempo: 0 },
+  bright: { styles: ["jazz", "classical"], modes: ["major"], tempo: 6 },
+};
+
+// ── Rhythm pools (one bar of 4 beats) ────────────────────────────────
+
+const RHYTHMS = {
+  classical: [
+    [1, 1, 1, 1],
+    [0.5, 0.5, 1, 1, 1],
+    [2, 1, 1],
+  ],
+  jazz: [
+    [0.5, 0.5, 1, 0.5, 0.5, 1],
+    [1, 0.5, 0.5, 0.5, 0.5, 1],
+    [1.5, 0.5, 1, 1],
+  ],
+  lofi: [
+    [1, 1, 2],
+    [2, 1, 1],
+    [1, 0.5, 0.5, 2],
+  ],
+  ambient: [[4], [2, 2], [3, 1]],
+};
+
+// ── Voices ───────────────────────────────────────────────────────────
+
+// keys — the lead line: a motif walk that re-anchors on chord tones at the
+// top of each 4-bar phrase and walks home to the tonic at the phrase end.
+function keysTrack(rng, style, scale, root, bars, degs, resolveHome) {
+  const notes = [];
+  let deg = 7; // start an octave above the tonic, in scale-degree index space
+  const restChance = style === "ambient" ? 0.38 : style === "lofi" ? 0.22 : 0.12;
+  for (let bar = 0; bar < bars; bar++) {
+    const phrasePos = bar % 4;
+    const isCadence = phrasePos === 3 || (resolveHome && bar === bars - 1);
+    const rhythm = pick(rng, RHYTHMS[style]);
+    if (phrasePos === 0 || phrasePos === 2) deg = degs[bar] + 7 + pick(rng, [0, 2, 4]);
+    let t = bar * 4;
+    for (let i = 0; i < rhythm.length; i++) {
+      const d = rhythm[i];
+      if (t + d > (bar + 1) * 4 + 1e-6) break;
+      let step;
+      const r = rng();
+      if (r < 0.45) step = 1;
+      else if (r < 0.78) step = -1;
+      else if (r < 0.9) step = chance(rng, 0.5) ? 2 : -2;
+      else step = 0;
+      if (isCadence && i >= rhythm.length - 2) step = deg % 7 === 0 ? 0 : deg % 7 > 3 ? 1 : -1;
+      deg = clamp(deg + step, 3, 17);
+      if (!chance(rng, restChance)) {
+        const p = root + scale[deg % 7] + 12 * Math.floor(deg / 7);
+        notes.push({ t: r4(t), d: r4(d * (style === "ambient" ? 1 : 0.9)), p, v: r3(jitter(rng, 0.72, 0.2)) });
+      }
+      t += d;
+    }
+  }
+  return notes;
+}
+
+// pad — the sustained harmony: the chord held whole under each bar.
+function padTrack(rng, scale, root, bars, degs, seventh) {
+  const notes = [];
+  for (let bar = 0; bar < bars; bar++) {
+    const tones = chordAt(scale, degs[bar], seventh).map((s) => root + s);
+    for (const p of tones) notes.push({ t: bar * 4, d: 4, p, v: r3(0.3) });
+  }
+  return notes;
+}
+
+// bass — the floor: walking quarters for jazz, root/fifth otherwise.
+function bassTrack(rng, style, scale, root, bars, degs) {
+  const notes = [];
+  for (let bar = 0; bar < bars; bar++) {
+    const deg = degs[bar];
+    const nextDeg = degs[(bar + 1) % bars];
+    const tones = chordAt(scale, deg, false).map((s) => root + s - 12);
+    const nextRoot = root - 12 + scale[((nextDeg % 7) + 7) % 7];
+    const t0 = bar * 4;
+    if (style === "jazz") {
+      const approach = nextRoot + (nextRoot > tones[0] ? -1 : 1);
+      [tones[0], tones[1], tones[2], approach].forEach((p, i) =>
+        notes.push({ t: t0 + i, d: 0.95, p, v: r3(jitter(rng, 0.5, 0.1)) }),
+      );
+    } else if (style === "ambient") {
+      notes.push({ t: t0, d: 4, p: tones[0], v: r3(0.4) });
+    } else {
+      notes.push({ t: t0, d: r4(style === "lofi" ? 1.6 : 1.9), p: tones[0], v: r3(0.52) });
+      notes.push({ t: t0 + (style === "lofi" ? 2.5 : 2), d: 1.2, p: chance(rng, 0.5) ? tones[2] : tones[0], v: r3(0.42) });
+    }
+  }
+  return notes;
+}
+
+// drums — always present (keys+pad+bass+drums is the floor), but honest to
+// the style: a full kit for lofi/jazz, a soft pulse for classical/ambient.
+function drumTrack(rng, style, bars) {
+  const notes = [];
+  for (let bar = 0; bar < bars; bar++) {
+    const t0 = bar * 4;
+    if (style === "lofi") {
+      notes.push({ t: t0, d: 0.2, p: 36, v: 0.85 });
+      if (chance(rng, 0.6)) notes.push({ t: t0 + 2.75, d: 0.2, p: 36, v: 0.6 });
+      notes.push({ t: t0 + 1, d: 0.15, p: 38, v: 0.7 });
+      notes.push({ t: t0 + 3, d: 0.15, p: 38, v: 0.72 });
+      for (let i = 0; i < 8; i++) if (chance(rng, 0.9)) notes.push({ t: t0 + i * 0.5, d: 0.08, p: 42, v: r3(jitter(rng, 0.3, 0.15)) });
+    } else if (style === "jazz") {
+      for (const h of [0, 1, 1.5, 2, 3, 3.5]) notes.push({ t: t0 + h, d: 0.1, p: 42, v: r3(jitter(rng, 0.32, 0.12)) });
+      if (chance(rng, 0.35)) notes.push({ t: t0 + pick(rng, [1.5, 2.5, 3.5]), d: 0.12, p: 38, v: 0.3 });
+      notes.push({ t: t0 + 1, d: 0.1, p: 46, v: 0.25 });
+      notes.push({ t: t0 + 3, d: 0.1, p: 46, v: 0.25 });
+    } else if (style === "classical") {
+      notes.push({ t: t0, d: 0.15, p: 36, v: 0.4 }); // a soft heartbeat on 1
+      if (chance(rng, 0.5)) notes.push({ t: t0 + 2, d: 0.1, p: 42, v: 0.18 });
+    } else {
+      // ambient — the barest pulse, mostly silence.
+      if (bar % 2 === 0) notes.push({ t: t0, d: 0.12, p: 36, v: 0.3 });
+    }
+  }
+  return notes;
+}
+
+// ── The composer ─────────────────────────────────────────────────────
+
+function compose({ style, mood, seed = "", bars, tempoNudge = 0, key, mode, title } = {}) {
+  const rng = mulberry32(hashStr(String(seed)));
+  const m = mood && MOODS[mood] ? MOODS[mood] : null;
+  const st = style && STYLES[style] ? style : m ? pick(rng, m.styles) : pick(rng, Object.keys(STYLES));
+  const cfg = STYLES[st];
+  const usedMode = mode && MODES[mode] ? mode : m ? pick(rng, m.modes) : pick(rng, Object.keys(MODES));
+  const keyName = key && KEY_ROOTS[key] ? key : pick(rng, Object.keys(KEY_ROOTS));
+  const root = KEY_ROOTS[keyName];
+  const scale = MODES[usedMode];
+  const nbars = bars ?? cfg.bars;
+  const bpm = clamp(cfg.bpm[0] + Math.floor(rng() * (cfg.bpm[1] - cfg.bpm[0])) + (m ? m.tempo : 0) + tempoNudge, 48, 150);
+  const prog = pick(rng, PROGRESSIONS[st]);
+
+  // bright resolves: the last bar is dragged home to the tonic, so the
+  // final chord is the tonic (with a maj7 colour when seventh is on).
+  const resolveHome = mood === "bright";
+  const seventh = cfg.seventh || resolveHome;
+  const degs = [];
+  for (let bar = 0; bar < nbars; bar++) degs.push(prog[bar % prog.length]);
+  if (resolveHome) degs[nbars - 1] = 0;
+
+  const tracks = [
+    { voice: "keys", gain: 0.9, notes: keysTrack(rng, st, scale, root, nbars, degs, resolveHome) },
+    { voice: "pad", gain: st === "ambient" ? 0.55 : 0.5, notes: padTrack(rng, scale, root, nbars, degs, seventh) },
+    { voice: "bass", gain: 0.75, notes: bassTrack(rng, st, scale, root, nbars, degs) },
+    { voice: "drums", gain: st === "lofi" ? 0.8 : st === "jazz" ? 0.5 : 0.35, notes: drumTrack(rng, st, nbars) },
+  ];
+
+  return {
+    title: title ?? nameFor(rng, st, mood),
+    style: st,
+    seed: String(seed),
+    by: "engine",
+    bpm,
+    swing: cfg.swing,
+    key: keyName,
+    mode: usedMode,
+    bars: nbars,
+    beatsPerBar: 4,
+    tracks,
+  };
+}
+
+// ── Naming — work-session flavoured, fresh words ─────────────────────
+
+const NAME_A = ["Morning", "Deep", "Quiet", "Open", "Second", "Grey", "Amber", "Late", "First", "Long", "Slow", "Clear"];
+const NAME_B = {
+  classical: ["Review", "Air", "Refrain", "Cadence", "Passage"],
+  jazz: ["Standoff", "Turnaround", "Blue", "Overtime", "Stride"],
+  lofi: ["Build", "Desk", "Loop", "Commit", "Flowstate"],
+  ambient: ["Search", "Draft", "Margin", "Wander", "Field"],
+};
+
+function nameFor(rng, style, mood) {
+  const a = pick(rng, NAME_A);
+  const b = pick(rng, NAME_B[style]);
+  return mood ? `${a} ${b} (${mood})` : `${a} ${b}`;
+}
+
+// ── Validation ───────────────────────────────────────────────────────
+
+function validateScore(score) {
+  const errs = [];
+  if (!score.tracks?.length) errs.push("no tracks");
+  const total = score.bars * score.beatsPerBar;
+  for (const tr of score.tracks ?? []) {
+    for (const n of tr.notes) {
+      if (n.t < 0 || n.t >= total + 1e-6) errs.push(`note out of range t=${n.t} (${tr.voice})`);
+      if (tr.voice !== "drums" && (n.p < 24 || n.p > 96)) errs.push(`pitch out of range p=${n.p} (${tr.voice})`);
+      if (n.d <= 0) errs.push(`non-positive duration (${tr.voice})`);
+      if (n.v < 0 || n.v > 1) errs.push(`velocity out of range (${tr.voice})`);
+    }
+  }
+  return errs;
+}
+
+// ── ABC melody line — human-diffable git, per the inherited doctrine ─
+//  Canonical score is the JSON; this is the line a person can read in a
+//  diff. Optional: worklist keeps JSON canonical, this is here on purpose.
+
+const ABC_NOTES = ["C", "^C", "D", "^D", "E", "F", "^F", "G", "^G", "A", "^A", "B"];
+
+function scoreToABC(score) {
+  const melody = score.tracks.find((t) => t.voice === "keys")?.notes ?? score.tracks[0]?.notes ?? [];
+  const unit = 0.5;
+  let out = `X:1\nT:${score.title}\nM:${score.beatsPerBar}/4\nL:1/8\nQ:1/4=${score.bpm}\nK:${score.key}${score.mode === "minor" ? "m" : score.mode === "dorian" ? " dor" : ""}\n`;
+  let line = "";
+  let cursor = 0;
+  for (const n of melody) {
+    if (n.t > cursor + 1e-3) {
+      const restLen = Math.round((n.t - cursor) / unit);
+      if (restLen > 0) line += `z${restLen > 1 ? restLen : ""} `;
+    }
+    const len = Math.max(1, Math.round(n.d / unit));
+    const pc = ((n.p % 12) + 12) % 12;
+    const oct = Math.floor(n.p / 12) - 1;
+    let sym = ABC_NOTES[pc];
+    if (oct >= 5) sym = sym.toLowerCase() + "'".repeat(Math.max(0, oct - 5));
+    else sym = sym + ",".repeat(Math.max(0, 4 - oct));
+    line += `${sym}${len > 1 ? len : ""} `;
+    cursor = n.t + n.d;
+    if (line.length > 56) {
+      out += line.trim() + "\n";
+      line = "";
+    }
+  }
+  return out + line.trim() + " |]\n";
+}
+
+const SESSION = {"name":"worklist · demo","session":"demo","pieces":[{"phase":"explore","mood":"wander","seed":"demo:0:explore","score":{"title":"Morning Margin (wander)","style":"ambient","seed":"demo:0:explore","by":"engine","bpm":69,"swing":0,"key":"G","mode":"dorian","bars":12,"beatsPerBar":4,"tracks":[{"voice":"keys","gain":0.9,"notes":[{"t":2,"d":2,"p":74,"v":0.715},{"t":4,"d":3,"p":72,"v":0.746},{"t":7,"d":1,"p":70,"v":0.69},{"t":8,"d":2,"p":69,"v":0.813},{"t":10,"d":2,"p":65,"v":0.666},{"t":12,"d":2,"p":67,"v":0.678},{"t":16,"d":3,"p":72,"v":0.667},{"t":20,"d":4,"p":70,"v":0.819},{"t":24,"d":3,"p":76,"v":0.804},{"t":30,"d":2,"p":77,"v":0.804},{"t":32,"d":2,"p":69,"v":0.723},{"t":34,"d":2,"p":69,"v":0.736},{"t":36,"d":4,"p":70,"v":0.815},{"t":42,"d":2,"p":69,"v":0.642},{"t":44,"d":4,"p":67,"v":0.666}]},{"voice":"pad","gain":0.55,"notes":[{"t":0,"d":4,"p":55,"v":0.3},{"t":0,"d":4,"p":58,"v":0.3},{"t":0,"d":4,"p":62,"v":0.3},{"t":4,"d":4,"p":64,"v":0.3},{"t":4,"d":4,"p":67,"v":0.3},{"t":4,"d":4,"p":70,"v":0.3},{"t":8,"d":4,"p":55,"v":0.3},{"t":8,"d":4,"p":58,"v":0.3},{"t":8,"d":4,"p":62,"v":0.3},{"t":12,"d":4,"p":64,"v":0.3},{"t":12,"d":4,"p":67,"v":0.3},{"t":12,"d":4,"p":70,"v":0.3},{"t":16,"d":4,"p":55,"v":0.3},{"t":16,"d":4,"p":58,"v":0.3},{"t":16,"d":4,"p":62,"v":0.3},{"t":20,"d":4,"p":64,"v":0.3},{"t":20,"d":4,"p":67,"v":0.3},{"t":20,"d":4,"p":70,"v":0.3},{"t":24,"d":4,"p":55,"v":0.3},{"t":24,"d":4,"p":58,"v":0.3},{"t":24,"d":4,"p":62,"v":0.3},{"t":28,"d":4,"p":64,"v":0.3},{"t":28,"d":4,"p":67,"v":0.3},{"t":28,"d":4,"p":70,"v":0.3},{"t":32,"d":4,"p":55,"v":0.3},{"t":32,"d":4,"p":58,"v":0.3},{"t":32,"d":4,"p":62,"v":0.3},{"t":36,"d":4,"p":64,"v":0.3},{"t":36,"d":4,"p":67,"v":0.3},{"t":36,"d":4,"p":70,"v":0.3},{"t":40,"d":4,"p":55,"v":0.3},{"t":40,"d":4,"p":58,"v":0.3},{"t":40,"d":4,"p":62,"v":0.3},{"t":44,"d":4,"p":64,"v":0.3},{"t":44,"d":4,"p":67,"v":0.3},{"t":44,"d":4,"p":70,"v":0.3}]},{"voice":"bass","gain":0.75,"notes":[{"t":0,"d":4,"p":43,"v":0.4},{"t":4,"d":4,"p":52,"v":0.4},{"t":8,"d":4,"p":43,"v":0.4},{"t":12,"d":4,"p":52,"v":0.4},{"t":16,"d":4,"p":43,"v":0.4},{"t":20,"d":4,"p":52,"v":0.4},{"t":24,"d":4,"p":43,"v":0.4},{"t":28,"d":4,"p":52,"v":0.4},{"t":32,"d":4,"p":43,"v":0.4},{"t":36,"d":4,"p":52,"v":0.4},{"t":40,"d":4,"p":43,"v":0.4},{"t":44,"d":4,"p":52,"v":0.4}]},{"voice":"drums","gain":0.35,"notes":[{"t":0,"d":0.12,"p":36,"v":0.3},{"t":8,"d":0.12,"p":36,"v":0.3},{"t":16,"d":0.12,"p":36,"v":0.3},{"t":24,"d":0.12,"p":36,"v":0.3},{"t":32,"d":0.12,"p":36,"v":0.3},{"t":40,"d":0.12,"p":36,"v":0.3}]}]}},{"phase":"build","mood":"settled","seed":"demo:1:build","score":{"title":"Grey Flowstate (settled)","style":"lofi","seed":"demo:1:build","by":"engine","bpm":78,"swing":0.14,"key":"E","mode":"major","bars":16,"beatsPerBar":4,"tracks":[{"voice":"keys","gain":0.9,"notes":[{"t":0,"d":0.9,"p":93,"v":0.686},{"t":1,"d":0.9,"p":92,"v":0.667},{"t":2,"d":1.8,"p":93,"v":0.624},{"t":4,"d":0.9,"p":93,"v":0.805},{"t":5,"d":0.45,"p":92,"v":0.729},{"t":6,"d":1.8,"p":93,"v":0.741},{"t":8,"d":0.9,"p":78,"v":0.772},{"t":9,"d":0.45,"p":76,"v":0.773},{"t":9.5,"d":0.45,"p":78,"v":0.751},{"t":10,"d":1.8,"p":80,"v":0.751},{"t":12,"d":0.9,"p":80,"v":0.754},{"t":13,"d":0.9,"p":78,"v":0.77},{"t":14,"d":1.8,"p":76,"v":0.674},{"t":16,"d":0.9,"p":90,"v":0.714},{"t":17.5,"d":0.45,"p":93,"v":0.812},{"t":18,"d":1.8,"p":90,"v":0.637},{"t":20,"d":0.9,"p":92,"v":0.713},{"t":21,"d":0.9,"p":93,"v":0.774},{"t":24,"d":0.9,"p":83,"v":0.654},{"t":25,"d":0.45,"p":85,"v":0.712},{"t":25.5,"d":0.45,"p":83,"v":0.769},{"t":26,"d":1.8,"p":87,"v":0.766},{"t":28,"d":0.9,"p":88,"v":0.766},{"t":29,"d":0.9,"p":88,"v":0.734},{"t":30,"d":1.8,"p":88,"v":0.773},{"t":32,"d":0.9,"p":88,"v":0.788},{"t":33,"d":0.9,"p":90,"v":0.772},{"t":34,"d":1.8,"p":88,"v":0.747},{"t":36,"d":0.9,"p":85,"v":0.715},{"t":37,"d":0.45,"p":87,"v":0.811},{"t":37.5,"d":0.45,"p":85,"v":0.773},{"t":38,"d":1.8,"p":87,"v":0.668},{"t":40,"d":0.9,"p":78,"v":0.736},{"t":41,"d":0.45,"p":78,"v":0.663},{"t":42,"d":1.8,"p":78,"v":0.624},{"t":44,"d":1.8,"p":80,"v":0.814},{"t":46,"d":0.9,"p":78,"v":0.733},{"t":47,"d":0.9,"p":76,"v":0.625},{"t":48,"d":0.9,"p":90,"v":0.805},{"t":49,"d":0.45,"p":92,"v":0.816},{"t":49.5,"d":0.45,"p":93,"v":0.627},{"t":50,"d":1.8,"p":93,"v":0.707},{"t":52,"d":0.9,"p":93,"v":0.767},{"t":53,"d":0.45,"p":93,"v":0.751},{"t":53.5,"d":0.45,"p":93,"v":0.8},{"t":54,"d":1.8,"p":93,"v":0.648},{"t":56,"d":1.8,"p":75,"v":0.664},{"t":59,"d":0.9,"p":80,"v":0.768},{"t":60,"d":0.9,"p":81,"v":0.819},{"t":61,"d":0.9,"p":80,"v":0.694},{"t":62,"d":1.8,"p":78,"v":0.65}]},{"voice":"pad","gain":0.5,"notes":[{"t":0,"d":4,"p":73,"v":0.3},{"t":0,"d":4,"p":76,"v":0.3},{"t":0,"d":4,"p":80,"v":0.3},{"t":0,"d":4,"p":83,"v":0.3},{"t":4,"d":4,"p":69,"v":0.3},{"t":4,"d":4,"p":73,"v":0.3},{"t":4,"d":4,"p":76,"v":0.3},{"t":4,"d":4,"p":80,"v":0.3},{"t":8,"d":4,"p":64,"v":0.3},{"t":8,"d":4,"p":68,"v":0.3},{"t":8,"d":4,"p":71,"v":0.3},{"t":8,"d":4,"p":75,"v":0.3},{"t":12,"d":4,"p":71,"v":0.3},{"t":12,"d":4,"p":75,"v":0.3},{"t":12,"d":4,"p":78,"v":0.3},{"t":12,"d":4,"p":81,"v":0.3},{"t":16,"d":4,"p":73,"v":0.3},{"t":16,"d":4,"p":76,"v":0.3},{"t":16,"d":4,"p":80,"v":0.3},{"t":16,"d":4,"p":83,"v":0.3},{"t":20,"d":4,"p":69,"v":0.3},{"t":20,"d":4,"p":73,"v":0.3},{"t":20,"d":4,"p":76,"v":0.3},{"t":20,"d":4,"p":80,"v":0.3},{"t":24,"d":4,"p":64,"v":0.3},{"t":24,"d":4,"p":68,"v":0.3},{"t":24,"d":4,"p":71,"v":0.3},{"t":24,"d":4,"p":75,"v":0.3},{"t":28,"d":4,"p":71,"v":0.3},{"t":28,"d":4,"p":75,"v":0.3},{"t":28,"d":4,"p":78,"v":0.3},{"t":28,"d":4,"p":81,"v":0.3},{"t":32,"d":4,"p":73,"v":0.3},{"t":32,"d":4,"p":76,"v":0.3},{"t":32,"d":4,"p":80,"v":0.3},{"t":32,"d":4,"p":83,"v":0.3},{"t":36,"d":4,"p":69,"v":0.3},{"t":36,"d":4,"p":73,"v":0.3},{"t":36,"d":4,"p":76,"v":0.3},{"t":36,"d":4,"p":80,"v":0.3},{"t":40,"d":4,"p":64,"v":0.3},{"t":40,"d":4,"p":68,"v":0.3},{"t":40,"d":4,"p":71,"v":0.3},{"t":40,"d":4,"p":75,"v":0.3},{"t":44,"d":4,"p":71,"v":0.3},{"t":44,"d":4,"p":75,"v":0.3},{"t":44,"d":4,"p":78,"v":0.3},{"t":44,"d":4,"p":81,"v":0.3},{"t":48,"d":4,"p":73,"v":0.3},{"t":48,"d":4,"p":76,"v":0.3},{"t":48,"d":4,"p":80,"v":0.3},{"t":48,"d":4,"p":83,"v":0.3},{"t":52,"d":4,"p":69,"v":0.3},{"t":52,"d":4,"p":73,"v":0.3},{"t":52,"d":4,"p":76,"v":0.3},{"t":52,"d":4,"p":80,"v":0.3},{"t":56,"d":4,"p":64,"v":0.3},{"t":56,"d":4,"p":68,"v":0.3},{"t":56,"d":4,"p":71,"v":0.3},{"t":56,"d":4,"p":75,"v":0.3},{"t":60,"d":4,"p":71,"v":0.3},{"t":60,"d":4,"p":75,"v":0.3},{"t":60,"d":4,"p":78,"v":0.3},{"t":60,"d":4,"p":81,"v":0.3}]},{"voice":"bass","gain":0.75,"notes":[{"t":0,"d":1.6,"p":61,"v":0.52},{"t":2.5,"d":1.2,"p":61,"v":0.42},{"t":4,"d":1.6,"p":57,"v":0.52},{"t":6.5,"d":1.2,"p":57,"v":0.42},{"t":8,"d":1.6,"p":52,"v":0.52},{"t":10.5,"d":1.2,"p":59,"v":0.42},{"t":12,"d":1.6,"p":59,"v":0.52},{"t":14.5,"d":1.2,"p":59,"v":0.42},{"t":16,"d":1.6,"p":61,"v":0.52},{"t":18.5,"d":1.2,"p":68,"v":0.42},{"t":20,"d":1.6,"p":57,"v":0.52},{"t":22.5,"d":1.2,"p":57,"v":0.42},{"t":24,"d":1.6,"p":52,"v":0.52},{"t":26.5,"d":1.2,"p":52,"v":0.42},{"t":28,"d":1.6,"p":59,"v":0.52},{"t":30.5,"d":1.2,"p":59,"v":0.42},{"t":32,"d":1.6,"p":61,"v":0.52},{"t":34.5,"d":1.2,"p":68,"v":0.42},{"t":36,"d":1.6,"p":57,"v":0.52},{"t":38.5,"d":1.2,"p":64,"v":0.42},{"t":40,"d":1.6,"p":52,"v":0.52},{"t":42.5,"d":1.2,"p":59,"v":0.42},{"t":44,"d":1.6,"p":59,"v":0.52},{"t":46.5,"d":1.2,"p":59,"v":0.42},{"t":48,"d":1.6,"p":61,"v":0.52},{"t":50.5,"d":1.2,"p":61,"v":0.42},{"t":52,"d":1.6,"p":57,"v":0.52},{"t":54.5,"d":1.2,"p":57,"v":0.42},{"t":56,"d":1.6,"p":52,"v":0.52},{"t":58.5,"d":1.2,"p":52,"v":0.42},{"t":60,"d":1.6,"p":59,"v":0.52},{"t":62.5,"d":1.2,"p":66,"v":0.42}]},{"voice":"drums","gain":0.8,"notes":[{"t":0,"d":0.2,"p":36,"v":0.85},{"t":1,"d":0.15,"p":38,"v":0.7},{"t":3,"d":0.15,"p":38,"v":0.72},{"t":0,"d":0.08,"p":42,"v":0.316},{"t":0.5,"d":0.08,"p":42,"v":0.329},{"t":1,"d":0.08,"p":42,"v":0.349},{"t":2,"d":0.08,"p":42,"v":0.242},{"t":3,"d":0.08,"p":42,"v":0.29},{"t":3.5,"d":0.08,"p":42,"v":0.313},{"t":4,"d":0.2,"p":36,"v":0.85},{"t":6.75,"d":0.2,"p":36,"v":0.6},{"t":5,"d":0.15,"p":38,"v":0.7},{"t":7,"d":0.15,"p":38,"v":0.72},{"t":4,"d":0.08,"p":42,"v":0.303},{"t":4.5,"d":0.08,"p":42,"v":0.329},{"t":5,"d":0.08,"p":42,"v":0.289},{"t":6,"d":0.08,"p":42,"v":0.323},{"t":6.5,"d":0.08,"p":42,"v":0.352},{"t":7,"d":0.08,"p":42,"v":0.335},{"t":7.5,"d":0.08,"p":42,"v":0.244},{"t":8,"d":0.2,"p":36,"v":0.85},{"t":9,"d":0.15,"p":38,"v":0.7},{"t":11,"d":0.15,"p":38,"v":0.72},{"t":8,"d":0.08,"p":42,"v":0.258},{"t":8.5,"d":0.08,"p":42,"v":0.318},{"t":9,"d":0.08,"p":42,"v":0.317},{"t":9.5,"d":0.08,"p":42,"v":0.237},{"t":10,"d":0.08,"p":42,"v":0.297},{"t":10.5,"d":0.08,"p":42,"v":0.346},{"t":12,"d":0.2,"p":36,"v":0.85},{"t":13,"d":0.15,"p":38,"v":0.7},{"t":15,"d":0.15,"p":38,"v":0.72},{"t":12.5,"d":0.08,"p":42,"v":0.303},{"t":13,"d":0.08,"p":42,"v":0.239},{"t":13.5,"d":0.08,"p":42,"v":0.278},{"t":14,"d":0.08,"p":42,"v":0.29},{"t":14.5,"d":0.08,"p":42,"v":0.29},{"t":15,"d":0.08,"p":42,"v":0.35},{"t":15.5,"d":0.08,"p":42,"v":0.309},{"t":16,"d":0.2,"p":36,"v":0.85},{"t":18.75,"d":0.2,"p":36,"v":0.6},{"t":17,"d":0.15,"p":38,"v":0.7},{"t":19,"d":0.15,"p":38,"v":0.72},{"t":16,"d":0.08,"p":42,"v":0.289},{"t":16.5,"d":0.08,"p":42,"v":0.374},{"t":17,"d":0.08,"p":42,"v":0.254},{"t":17.5,"d":0.08,"p":42,"v":0.294},{"t":18,"d":0.08,"p":42,"v":0.241},{"t":18.5,"d":0.08,"p":42,"v":0.313},{"t":19,"d":0.08,"p":42,"v":0.247},{"t":19.5,"d":0.08,"p":42,"v":0.318},{"t":20,"d":0.2,"p":36,"v":0.85},{"t":22.75,"d":0.2,"p":36,"v":0.6},{"t":21,"d":0.15,"p":38,"v":0.7},{"t":23,"d":0.15,"p":38,"v":0.72},{"t":20,"d":0.08,"p":42,"v":0.333},{"t":20.5,"d":0.08,"p":42,"v":0.259},{"t":21,"d":0.08,"p":42,"v":0.247},{"t":21.5,"d":0.08,"p":42,"v":0.293},{"t":22,"d":0.08,"p":42,"v":0.309},{"t":22.5,"d":0.08,"p":42,"v":0.337},{"t":23,"d":0.08,"p":42,"v":0.272},{"t":23.5,"d":0.08,"p":42,"v":0.293},{"t":24,"d":0.2,"p":36,"v":0.85},{"t":26.75,"d":0.2,"p":36,"v":0.6},{"t":25,"d":0.15,"p":38,"v":0.7},{"t":27,"d":0.15,"p":38,"v":0.72},{"t":24,"d":0.08,"p":42,"v":0.293},{"t":24.5,"d":0.08,"p":42,"v":0.232},{"t":26,"d":0.08,"p":42,"v":0.37},{"t":26.5,"d":0.08,"p":42,"v":0.327},{"t":27,"d":0.08,"p":42,"v":0.245},{"t":27.5,"d":0.08,"p":42,"v":0.335},{"t":28,"d":0.2,"p":36,"v":0.85},{"t":29,"d":0.15,"p":38,"v":0.7},{"t":31,"d":0.15,"p":38,"v":0.72},{"t":28,"d":0.08,"p":42,"v":0.236},{"t":29.5,"d":0.08,"p":42,"v":0.37},{"t":30,"d":0.08,"p":42,"v":0.36},{"t":30.5,"d":0.08,"p":42,"v":0.307},{"t":31,"d":0.08,"p":42,"v":0.269},{"t":31.5,"d":0.08,"p":42,"v":0.365},{"t":32,"d":0.2,"p":36,"v":0.85},{"t":34.75,"d":0.2,"p":36,"v":0.6},{"t":33,"d":0.15,"p":38,"v":0.7},{"t":35,"d":0.15,"p":38,"v":0.72},{"t":32,"d":0.08,"p":42,"v":0.275},{"t":32.5,"d":0.08,"p":42,"v":0.327},{"t":33,"d":0.08,"p":42,"v":0.326},{"t":33.5,"d":0.08,"p":42,"v":0.258},{"t":34,"d":0.08,"p":42,"v":0.275},{"t":34.5,"d":0.08,"p":42,"v":0.292},{"t":35,"d":0.08,"p":42,"v":0.342},{"t":35.5,"d":0.08,"p":42,"v":0.296},{"t":36,"d":0.2,"p":36,"v":0.85},{"t":37,"d":0.15,"p":38,"v":0.7},{"t":39,"d":0.15,"p":38,"v":0.72},{"t":36,"d":0.08,"p":42,"v":0.362},{"t":36.5,"d":0.08,"p":42,"v":0.34},{"t":37,"d":0.08,"p":42,"v":0.263},{"t":37.5,"d":0.08,"p":42,"v":0.347},{"t":38.5,"d":0.08,"p":42,"v":0.374},{"t":39,"d":0.08,"p":42,"v":0.301},{"t":39.5,"d":0.08,"p":42,"v":0.368},{"t":40,"d":0.2,"p":36,"v":0.85},{"t":42.75,"d":0.2,"p":36,"v":0.6},{"t":41,"d":0.15,"p":38,"v":0.7},{"t":43,"d":0.15,"p":38,"v":0.72},{"t":40,"d":0.08,"p":42,"v":0.327},{"t":40.5,"d":0.08,"p":42,"v":0.32},{"t":41,"d":0.08,"p":42,"v":0.278},{"t":41.5,"d":0.08,"p":42,"v":0.337},{"t":42,"d":0.08,"p":42,"v":0.263},{"t":42.5,"d":0.08,"p":42,"v":0.285},{"t":43,"d":0.08,"p":42,"v":0.265},{"t":43.5,"d":0.08,"p":42,"v":0.321},{"t":44,"d":0.2,"p":36,"v":0.85},{"t":46.75,"d":0.2,"p":36,"v":0.6},{"t":45,"d":0.15,"p":38,"v":0.7},{"t":47,"d":0.15,"p":38,"v":0.72},{"t":44,"d":0.08,"p":42,"v":0.35},{"t":44.5,"d":0.08,"p":42,"v":0.34},{"t":45,"d":0.08,"p":42,"v":0.373},{"t":45.5,"d":0.08,"p":42,"v":0.278},{"t":46,"d":0.08,"p":42,"v":0.351},{"t":46.5,"d":0.08,"p":42,"v":0.288},{"t":47,"d":0.08,"p":42,"v":0.29},{"t":48,"d":0.2,"p":36,"v":0.85},{"t":50.75,"d":0.2,"p":36,"v":0.6},{"t":49,"d":0.15,"p":38,"v":0.7},{"t":51,"d":0.15,"p":38,"v":0.72},{"t":48,"d":0.08,"p":42,"v":0.249},{"t":48.5,"d":0.08,"p":42,"v":0.248},{"t":49,"d":0.08,"p":42,"v":0.245},{"t":49.5,"d":0.08,"p":42,"v":0.28},{"t":50,"d":0.08,"p":42,"v":0.246},{"t":50.5,"d":0.08,"p":42,"v":0.341},{"t":51,"d":0.08,"p":42,"v":0.37},{"t":51.5,"d":0.08,"p":42,"v":0.272},{"t":52,"d":0.2,"p":36,"v":0.85},{"t":54.75,"d":0.2,"p":36,"v":0.6},{"t":53,"d":0.15,"p":38,"v":0.7},{"t":55,"d":0.15,"p":38,"v":0.72},{"t":52,"d":0.08,"p":42,"v":0.31},{"t":52.5,"d":0.08,"p":42,"v":0.364},{"t":53,"d":0.08,"p":42,"v":0.313},{"t":53.5,"d":0.08,"p":42,"v":0.364},{"t":54,"d":0.08,"p":42,"v":0.238},{"t":54.5,"d":0.08,"p":42,"v":0.352},{"t":55,"d":0.08,"p":42,"v":0.28},{"t":55.5,"d":0.08,"p":42,"v":0.273},{"t":56,"d":0.2,"p":36,"v":0.85},{"t":58.75,"d":0.2,"p":36,"v":0.6},{"t":57,"d":0.15,"p":38,"v":0.7},{"t":59,"d":0.15,"p":38,"v":0.72},{"t":56,"d":0.08,"p":42,"v":0.267},{"t":56.5,"d":0.08,"p":42,"v":0.311},{"t":57,"d":0.08,"p":42,"v":0.299},{"t":57.5,"d":0.08,"p":42,"v":0.292},{"t":58,"d":0.08,"p":42,"v":0.226},{"t":58.5,"d":0.08,"p":42,"v":0.296},{"t":59,"d":0.08,"p":42,"v":0.253},{"t":59.5,"d":0.08,"p":42,"v":0.305},{"t":60,"d":0.2,"p":36,"v":0.85},{"t":62.75,"d":0.2,"p":36,"v":0.6},{"t":61,"d":0.15,"p":38,"v":0.7},{"t":63,"d":0.15,"p":38,"v":0.72},{"t":60,"d":0.08,"p":42,"v":0.292},{"t":60.5,"d":0.08,"p":42,"v":0.372},{"t":61,"d":0.08,"p":42,"v":0.252},{"t":61.5,"d":0.08,"p":42,"v":0.367},{"t":62,"d":0.08,"p":42,"v":0.344},{"t":62.5,"d":0.08,"p":42,"v":0.228},{"t":63.5,"d":0.08,"p":42,"v":0.343}]}]}},{"phase":"debug","mood":"fire","seed":"demo:2:debug","score":{"title":"Amber Stride (fire)","style":"jazz","seed":"demo:2:debug","by":"engine","bpm":116,"swing":0.22,"key":"F","mode":"dorian","bars":16,"beatsPerBar":4,"tracks":[{"voice":"keys","gain":0.9,"notes":[{"t":0,"d":1.35,"p":84,"v":0.724},{"t":1.5,"d":0.45,"p":86,"v":0.755},{"t":2,"d":0.9,"p":84,"v":0.648},{"t":3,"d":0.9,"p":86,"v":0.737},{"t":4,"d":0.9,"p":84,"v":0.777},{"t":5,"d":0.45,"p":80,"v":0.638},{"t":5.5,"d":0.45,"p":82,"v":0.789},{"t":6,"d":0.45,"p":84,"v":0.648},{"t":6.5,"d":0.45,"p":82,"v":0.692},{"t":7,"d":0.9,"p":80,"v":0.674},{"t":8,"d":0.9,"p":77,"v":0.637},{"t":9,"d":0.45,"p":79,"v":0.752},{"t":9.5,"d":0.45,"p":79,"v":0.636},{"t":10,"d":0.45,"p":75,"v":0.727},{"t":10.5,"d":0.45,"p":75,"v":0.803},{"t":11,"d":0.9,"p":75,"v":0.67},{"t":12,"d":0.45,"p":74,"v":0.629},{"t":12.5,"d":0.45,"p":75,"v":0.681},{"t":13,"d":0.9,"p":75,"v":0.698},{"t":14,"d":0.45,"p":75,"v":0.802},{"t":14.5,"d":0.45,"p":77,"v":0.666},{"t":15,"d":0.9,"p":77,"v":0.654},{"t":17.5,"d":0.45,"p":80,"v":0.78},{"t":18,"d":0.45,"p":80,"v":0.814},{"t":19,"d":0.9,"p":86,"v":0.755},{"t":21.5,"d":0.45,"p":91,"v":0.646},{"t":22,"d":0.9,"p":87,"v":0.777},{"t":23,"d":0.9,"p":89,"v":0.622},{"t":24,"d":0.45,"p":84,"v":0.787},{"t":24.5,"d":0.45,"p":84,"v":0.639},{"t":25,"d":0.9,"p":86,"v":0.685},{"t":26,"d":0.45,"p":87,"v":0.811},{"t":26.5,"d":0.45,"p":89,"v":0.734},{"t":27,"d":0.9,"p":89,"v":0.739},{"t":28,"d":0.45,"p":91,"v":0.698},{"t":28.5,"d":0.45,"p":92,"v":0.782},{"t":29,"d":0.9,"p":94,"v":0.754},{"t":30,"d":0.45,"p":94,"v":0.721},{"t":30.5,"d":0.45,"p":92,"v":0.751},{"t":32,"d":0.9,"p":79,"v":0.77},{"t":33,"d":0.45,"p":80,"v":0.762},{"t":35,"d":0.9,"p":80,"v":0.809},{"t":36,"d":0.45,"p":82,"v":0.659},{"t":36.5,"d":0.45,"p":84,"v":0.704},{"t":37,"d":0.9,"p":82,"v":0.645},{"t":38,"d":0.45,"p":82,"v":0.774},{"t":38.5,"d":0.45,"p":84,"v":0.74},{"t":39,"d":0.9,"p":86,"v":0.727},{"t":40,"d":0.9,"p":82,"v":0.756},{"t":41,"d":0.45,"p":84,"v":0.763},{"t":41.5,"d":0.45,"p":84,"v":0.651},{"t":42,"d":0.45,"p":86,"v":0.795},{"t":42.5,"d":0.45,"p":84,"v":0.788},{"t":43,"d":0.9,"p":82,"v":0.625},{"t":44,"d":1.35,"p":80,"v":0.636},{"t":45.5,"d":0.45,"p":79,"v":0.705},{"t":46,"d":0.9,"p":77,"v":0.784},{"t":47,"d":0.9,"p":77,"v":0.789},{"t":48,"d":0.45,"p":80,"v":0.683},{"t":48.5,"d":0.45,"p":79,"v":0.812},{"t":49,"d":0.9,"p":77,"v":0.631},{"t":50,"d":0.45,"p":79,"v":0.623},{"t":50.5,"d":0.45,"p":80,"v":0.754},{"t":51,"d":0.9,"p":84,"v":0.661},{"t":52,"d":0.9,"p":82,"v":0.756},{"t":53,"d":0.45,"p":80,"v":0.657},{"t":53.5,"d":0.45,"p":79,"v":0.777},{"t":54,"d":0.45,"p":77,"v":0.663},{"t":54.5,"d":0.45,"p":79,"v":0.707},{"t":55,"d":0.9,"p":77,"v":0.772},{"t":56,"d":0.45,"p":82,"v":0.789},{"t":57,"d":0.9,"p":84,"v":0.625},{"t":58,"d":0.45,"p":86,"v":0.735},{"t":58.5,"d":0.45,"p":87,"v":0.732},{"t":59,"d":0.9,"p":86,"v":0.781},{"t":60,"d":0.9,"p":87,"v":0.653},{"t":61,"d":0.45,"p":86,"v":0.667},{"t":61.5,"d":0.45,"p":87,"v":0.726},{"t":62,"d":0.45,"p":89,"v":0.687},{"t":62.5,"d":0.45,"p":89,"v":0.635},{"t":63,"d":0.9,"p":89,"v":0.805}]},{"voice":"pad","gain":0.5,"notes":[{"t":0,"d":4,"p":67,"v":0.3},{"t":0,"d":4,"p":70,"v":0.3},{"t":0,"d":4,"p":74,"v":0.3},{"t":0,"d":4,"p":77,"v":0.3},{"t":4,"d":4,"p":72,"v":0.3},{"t":4,"d":4,"p":75,"v":0.3},{"t":4,"d":4,"p":79,"v":0.3},{"t":4,"d":4,"p":82,"v":0.3},{"t":8,"d":4,"p":65,"v":0.3},{"t":8,"d":4,"p":68,"v":0.3},{"t":8,"d":4,"p":72,"v":0.3},{"t":8,"d":4,"p":75,"v":0.3},{"t":12,"d":4,"p":65,"v":0.3},{"t":12,"d":4,"p":68,"v":0.3},{"t":12,"d":4,"p":72,"v":0.3},{"t":12,"d":4,"p":75,"v":0.3},{"t":16,"d":4,"p":67,"v":0.3},{"t":16,"d":4,"p":70,"v":0.3},{"t":16,"d":4,"p":74,"v":0.3},{"t":16,"d":4,"p":77,"v":0.3},{"t":20,"d":4,"p":72,"v":0.3},{"t":20,"d":4,"p":75,"v":0.3},{"t":20,"d":4,"p":79,"v":0.3},{"t":20,"d":4,"p":82,"v":0.3},{"t":24,"d":4,"p":65,"v":0.3},{"t":24,"d":4,"p":68,"v":0.3},{"t":24,"d":4,"p":72,"v":0.3},{"t":24,"d":4,"p":75,"v":0.3},{"t":28,"d":4,"p":65,"v":0.3},{"t":28,"d":4,"p":68,"v":0.3},{"t":28,"d":4,"p":72,"v":0.3},{"t":28,"d":4,"p":75,"v":0.3},{"t":32,"d":4,"p":67,"v":0.3},{"t":32,"d":4,"p":70,"v":0.3},{"t":32,"d":4,"p":74,"v":0.3},{"t":32,"d":4,"p":77,"v":0.3},{"t":36,"d":4,"p":72,"v":0.3},{"t":36,"d":4,"p":75,"v":0.3},{"t":36,"d":4,"p":79,"v":0.3},{"t":36,"d":4,"p":82,"v":0.3},{"t":40,"d":4,"p":65,"v":0.3},{"t":40,"d":4,"p":68,"v":0.3},{"t":40,"d":4,"p":72,"v":0.3},{"t":40,"d":4,"p":75,"v":0.3},{"t":44,"d":4,"p":65,"v":0.3},{"t":44,"d":4,"p":68,"v":0.3},{"t":44,"d":4,"p":72,"v":0.3},{"t":44,"d":4,"p":75,"v":0.3},{"t":48,"d":4,"p":67,"v":0.3},{"t":48,"d":4,"p":70,"v":0.3},{"t":48,"d":4,"p":74,"v":0.3},{"t":48,"d":4,"p":77,"v":0.3},{"t":52,"d":4,"p":72,"v":0.3},{"t":52,"d":4,"p":75,"v":0.3},{"t":52,"d":4,"p":79,"v":0.3},{"t":52,"d":4,"p":82,"v":0.3},{"t":56,"d":4,"p":65,"v":0.3},{"t":56,"d":4,"p":68,"v":0.3},{"t":56,"d":4,"p":72,"v":0.3},{"t":56,"d":4,"p":75,"v":0.3},{"t":60,"d":4,"p":65,"v":0.3},{"t":60,"d":4,"p":68,"v":0.3},{"t":60,"d":4,"p":72,"v":0.3},{"t":60,"d":4,"p":75,"v":0.3}]},{"voice":"bass","gain":0.75,"notes":[{"t":0,"d":0.95,"p":55,"v":0.452},{"t":1,"d":0.95,"p":58,"v":0.52},{"t":2,"d":0.95,"p":62,"v":0.49},{"t":3,"d":0.95,"p":59,"v":0.466},{"t":4,"d":0.95,"p":60,"v":0.464},{"t":5,"d":0.95,"p":63,"v":0.507},{"t":6,"d":0.95,"p":67,"v":0.513},{"t":7,"d":0.95,"p":54,"v":0.507},{"t":8,"d":0.95,"p":53,"v":0.475},{"t":9,"d":0.95,"p":56,"v":0.459},{"t":10,"d":0.95,"p":60,"v":0.469},{"t":11,"d":0.95,"p":54,"v":0.477},{"t":12,"d":0.95,"p":53,"v":0.548},{"t":13,"d":0.95,"p":56,"v":0.53},{"t":14,"d":0.95,"p":60,"v":0.522},{"t":15,"d":0.95,"p":54,"v":0.488},{"t":16,"d":0.95,"p":55,"v":0.512},{"t":17,"d":0.95,"p":58,"v":0.462},{"t":18,"d":0.95,"p":62,"v":0.508},{"t":19,"d":0.95,"p":59,"v":0.521},{"t":20,"d":0.95,"p":60,"v":0.53},{"t":21,"d":0.95,"p":63,"v":0.497},{"t":22,"d":0.95,"p":67,"v":0.464},{"t":23,"d":0.95,"p":54,"v":0.472},{"t":24,"d":0.95,"p":53,"v":0.476},{"t":25,"d":0.95,"p":56,"v":0.479},{"t":26,"d":0.95,"p":60,"v":0.548},{"t":27,"d":0.95,"p":54,"v":0.476},{"t":28,"d":0.95,"p":53,"v":0.516},{"t":29,"d":0.95,"p":56,"v":0.515},{"t":30,"d":0.95,"p":60,"v":0.454},{"t":31,"d":0.95,"p":54,"v":0.527},{"t":32,"d":0.95,"p":55,"v":0.468},{"t":33,"d":0.95,"p":58,"v":0.518},{"t":34,"d":0.95,"p":62,"v":0.521},{"t":35,"d":0.95,"p":59,"v":0.488},{"t":36,"d":0.95,"p":60,"v":0.465},{"t":37,"d":0.95,"p":63,"v":0.468},{"t":38,"d":0.95,"p":67,"v":0.532},{"t":39,"d":0.95,"p":54,"v":0.54},{"t":40,"d":0.95,"p":53,"v":0.471},{"t":41,"d":0.95,"p":56,"v":0.487},{"t":42,"d":0.95,"p":60,"v":0.49},{"t":43,"d":0.95,"p":54,"v":0.513},{"t":44,"d":0.95,"p":53,"v":0.488},{"t":45,"d":0.95,"p":56,"v":0.486},{"t":46,"d":0.95,"p":60,"v":0.473},{"t":47,"d":0.95,"p":54,"v":0.477},{"t":48,"d":0.95,"p":55,"v":0.506},{"t":49,"d":0.95,"p":58,"v":0.488},{"t":50,"d":0.95,"p":62,"v":0.513},{"t":51,"d":0.95,"p":59,"v":0.469},{"t":52,"d":0.95,"p":60,"v":0.531},{"t":53,"d":0.95,"p":63,"v":0.47},{"t":54,"d":0.95,"p":67,"v":0.478},{"t":55,"d":0.95,"p":54,"v":0.46},{"t":56,"d":0.95,"p":53,"v":0.493},{"t":57,"d":0.95,"p":56,"v":0.545},{"t":58,"d":0.95,"p":60,"v":0.517},{"t":59,"d":0.95,"p":54,"v":0.507},{"t":60,"d":0.95,"p":53,"v":0.519},{"t":61,"d":0.95,"p":56,"v":0.451},{"t":62,"d":0.95,"p":60,"v":0.504},{"t":63,"d":0.95,"p":54,"v":0.462}]},{"voice":"drums","gain":0.5,"notes":[{"t":0,"d":0.1,"p":42,"v":0.307},{"t":1,"d":0.1,"p":42,"v":0.272},{"t":1.5,"d":0.1,"p":42,"v":0.274},{"t":2,"d":0.1,"p":42,"v":0.327},{"t":3,"d":0.1,"p":42,"v":0.324},{"t":3.5,"d":0.1,"p":42,"v":0.328},{"t":1,"d":0.1,"p":46,"v":0.25},{"t":3,"d":0.1,"p":46,"v":0.25},{"t":4,"d":0.1,"p":42,"v":0.315},{"t":5,"d":0.1,"p":42,"v":0.333},{"t":5.5,"d":0.1,"p":42,"v":0.312},{"t":6,"d":0.1,"p":42,"v":0.344},{"t":7,"d":0.1,"p":42,"v":0.264},{"t":7.5,"d":0.1,"p":42,"v":0.264},{"t":5.5,"d":0.12,"p":38,"v":0.3},{"t":5,"d":0.1,"p":46,"v":0.25},{"t":7,"d":0.1,"p":46,"v":0.25},{"t":8,"d":0.1,"p":42,"v":0.273},{"t":9,"d":0.1,"p":42,"v":0.336},{"t":9.5,"d":0.1,"p":42,"v":0.331},{"t":10,"d":0.1,"p":42,"v":0.355},{"t":11,"d":0.1,"p":42,"v":0.31},{"t":11.5,"d":0.1,"p":42,"v":0.277},{"t":9,"d":0.1,"p":46,"v":0.25},{"t":11,"d":0.1,"p":46,"v":0.25},{"t":12,"d":0.1,"p":42,"v":0.335},{"t":13,"d":0.1,"p":42,"v":0.375},{"t":13.5,"d":0.1,"p":42,"v":0.3},{"t":14,"d":0.1,"p":42,"v":0.302},{"t":15,"d":0.1,"p":42,"v":0.366},{"t":15.5,"d":0.1,"p":42,"v":0.323},{"t":13,"d":0.1,"p":46,"v":0.25},{"t":15,"d":0.1,"p":46,"v":0.25},{"t":16,"d":0.1,"p":42,"v":0.348},{"t":17,"d":0.1,"p":42,"v":0.293},{"t":17.5,"d":0.1,"p":42,"v":0.333},{"t":18,"d":0.1,"p":42,"v":0.292},{"t":19,"d":0.1,"p":42,"v":0.306},{"t":19.5,"d":0.1,"p":42,"v":0.279},{"t":17,"d":0.1,"p":46,"v":0.25},{"t":19,"d":0.1,"p":46,"v":0.25},{"t":20,"d":0.1,"p":42,"v":0.281},{"t":21,"d":0.1,"p":42,"v":0.339},{"t":21.5,"d":0.1,"p":42,"v":0.278},{"t":22,"d":0.1,"p":42,"v":0.364},{"t":23,"d":0.1,"p":42,"v":0.353},{"t":23.5,"d":0.1,"p":42,"v":0.369},{"t":23.5,"d":0.12,"p":38,"v":0.3},{"t":21,"d":0.1,"p":46,"v":0.25},{"t":23,"d":0.1,"p":46,"v":0.25},{"t":24,"d":0.1,"p":42,"v":0.302},{"t":25,"d":0.1,"p":42,"v":0.299},{"t":25.5,"d":0.1,"p":42,"v":0.27},{"t":26,"d":0.1,"p":42,"v":0.304},{"t":27,"d":0.1,"p":42,"v":0.324},{"t":27.5,"d":0.1,"p":42,"v":0.344},{"t":25,"d":0.1,"p":46,"v":0.25},{"t":27,"d":0.1,"p":46,"v":0.25},{"t":28,"d":0.1,"p":42,"v":0.298},{"t":29,"d":0.1,"p":42,"v":0.31},{"t":29.5,"d":0.1,"p":42,"v":0.35},{"t":30,"d":0.1,"p":42,"v":0.319},{"t":31,"d":0.1,"p":42,"v":0.348},{"t":31.5,"d":0.1,"p":42,"v":0.371},{"t":29.5,"d":0.12,"p":38,"v":0.3},{"t":29,"d":0.1,"p":46,"v":0.25},{"t":31,"d":0.1,"p":46,"v":0.25},{"t":32,"d":0.1,"p":42,"v":0.307},{"t":33,"d":0.1,"p":42,"v":0.273},{"t":33.5,"d":0.1,"p":42,"v":0.263},{"t":34,"d":0.1,"p":42,"v":0.295},{"t":35,"d":0.1,"p":42,"v":0.262},{"t":35.5,"d":0.1,"p":42,"v":0.272},{"t":35.5,"d":0.12,"p":38,"v":0.3},{"t":33,"d":0.1,"p":46,"v":0.25},{"t":35,"d":0.1,"p":46,"v":0.25},{"t":36,"d":0.1,"p":42,"v":0.313},{"t":37,"d":0.1,"p":42,"v":0.282},{"t":37.5,"d":0.1,"p":42,"v":0.345},{"t":38,"d":0.1,"p":42,"v":0.303},{"t":39,"d":0.1,"p":42,"v":0.325},{"t":39.5,"d":0.1,"p":42,"v":0.28},{"t":37,"d":0.1,"p":46,"v":0.25},{"t":39,"d":0.1,"p":46,"v":0.25},{"t":40,"d":0.1,"p":42,"v":0.313},{"t":41,"d":0.1,"p":42,"v":0.303},{"t":41.5,"d":0.1,"p":42,"v":0.374},{"t":42,"d":0.1,"p":42,"v":0.275},{"t":43,"d":0.1,"p":42,"v":0.307},{"t":43.5,"d":0.1,"p":42,"v":0.32},{"t":43.5,"d":0.12,"p":38,"v":0.3},{"t":41,"d":0.1,"p":46,"v":0.25},{"t":43,"d":0.1,"p":46,"v":0.25},{"t":44,"d":0.1,"p":42,"v":0.345},{"t":45,"d":0.1,"p":42,"v":0.354},{"t":45.5,"d":0.1,"p":42,"v":0.333},{"t":46,"d":0.1,"p":42,"v":0.346},{"t":47,"d":0.1,"p":42,"v":0.332},{"t":47.5,"d":0.1,"p":42,"v":0.328},{"t":47.5,"d":0.12,"p":38,"v":0.3},{"t":45,"d":0.1,"p":46,"v":0.25},{"t":47,"d":0.1,"p":46,"v":0.25},{"t":48,"d":0.1,"p":42,"v":0.312},{"t":49,"d":0.1,"p":42,"v":0.331},{"t":49.5,"d":0.1,"p":42,"v":0.353},{"t":50,"d":0.1,"p":42,"v":0.362},{"t":51,"d":0.1,"p":42,"v":0.268},{"t":51.5,"d":0.1,"p":42,"v":0.38},{"t":49,"d":0.1,"p":46,"v":0.25},{"t":51,"d":0.1,"p":46,"v":0.25},{"t":52,"d":0.1,"p":42,"v":0.312},{"t":53,"d":0.1,"p":42,"v":0.37},{"t":53.5,"d":0.1,"p":42,"v":0.301},{"t":54,"d":0.1,"p":42,"v":0.328},{"t":55,"d":0.1,"p":42,"v":0.264},{"t":55.5,"d":0.1,"p":42,"v":0.371},{"t":53,"d":0.1,"p":46,"v":0.25},{"t":55,"d":0.1,"p":46,"v":0.25},{"t":56,"d":0.1,"p":42,"v":0.368},{"t":57,"d":0.1,"p":42,"v":0.275},{"t":57.5,"d":0.1,"p":42,"v":0.276},{"t":58,"d":0.1,"p":42,"v":0.368},{"t":59,"d":0.1,"p":42,"v":0.337},{"t":59.5,"d":0.1,"p":42,"v":0.332},{"t":59.5,"d":0.12,"p":38,"v":0.3},{"t":57,"d":0.1,"p":46,"v":0.25},{"t":59,"d":0.1,"p":46,"v":0.25},{"t":60,"d":0.1,"p":42,"v":0.278},{"t":61,"d":0.1,"p":42,"v":0.32},{"t":61.5,"d":0.1,"p":42,"v":0.367},{"t":62,"d":0.1,"p":42,"v":0.36},{"t":63,"d":0.1,"p":42,"v":0.348},{"t":63.5,"d":0.1,"p":42,"v":0.357},{"t":61,"d":0.1,"p":46,"v":0.25},{"t":63,"d":0.1,"p":46,"v":0.25}]}]}},{"phase":"ship","mood":"bright","seed":"demo:3:ship","score":{"title":"Amber Passage (bright)","style":"classical","seed":"demo:3:ship","by":"engine","bpm":98,"swing":0,"key":"Bb","mode":"major","bars":16,"beatsPerBar":4,"tracks":[{"voice":"keys","gain":0.9,"notes":[{"t":0,"d":0.9,"p":72,"v":0.658},{"t":2,"d":0.9,"p":72,"v":0.79},{"t":3,"d":0.9,"p":74,"v":0.622},{"t":4,"d":0.45,"p":72,"v":0.664},{"t":4.5,"d":0.45,"p":70,"v":0.721},{"t":5,"d":0.9,"p":69,"v":0.666},{"t":6,"d":0.9,"p":70,"v":0.706},{"t":7,"d":0.9,"p":72,"v":0.78},{"t":8,"d":1.8,"p":82,"v":0.622},{"t":10,"d":0.9,"p":81,"v":0.754},{"t":11,"d":0.9,"p":79,"v":0.797},{"t":12,"d":1.8,"p":81,"v":0.774},{"t":14,"d":0.9,"p":82,"v":0.679},{"t":15,"d":0.9,"p":82,"v":0.654},{"t":16.5,"d":0.45,"p":70,"v":0.703},{"t":17,"d":0.9,"p":70,"v":0.776},{"t":18,"d":0.9,"p":72,"v":0.691},{"t":19,"d":0.9,"p":74,"v":0.78},{"t":20,"d":0.45,"p":77,"v":0.712},{"t":20.5,"d":0.45,"p":77,"v":0.706},{"t":21,"d":0.9,"p":75,"v":0.629},{"t":22,"d":0.9,"p":77,"v":0.653},{"t":24,"d":0.9,"p":77,"v":0.781},{"t":25,"d":0.9,"p":81,"v":0.638},{"t":26,"d":0.9,"p":77,"v":0.759},{"t":27,"d":0.9,"p":75,"v":0.798},{"t":28,"d":0.45,"p":72,"v":0.749},{"t":28.5,"d":0.45,"p":70,"v":0.688},{"t":30,"d":0.9,"p":70,"v":0.664},{"t":31,"d":0.9,"p":70,"v":0.722},{"t":32,"d":0.9,"p":70,"v":0.634},{"t":33,"d":0.9,"p":69,"v":0.702},{"t":35,"d":0.9,"p":65,"v":0.798},{"t":38,"d":0.9,"p":65,"v":0.813},{"t":39,"d":0.9,"p":67,"v":0.675},{"t":40,"d":1.8,"p":82,"v":0.703},{"t":43,"d":0.9,"p":77,"v":0.672},{"t":44,"d":1.8,"p":77,"v":0.671},{"t":46,"d":0.9,"p":79,"v":0.623},{"t":47,"d":0.9,"p":81,"v":0.699},{"t":48,"d":0.45,"p":70,"v":0.712},{"t":48.5,"d":0.45,"p":69,"v":0.685},{"t":49,"d":0.9,"p":72,"v":0.814},{"t":50,"d":0.9,"p":72,"v":0.768},{"t":51,"d":0.9,"p":74,"v":0.667},{"t":52,"d":0.45,"p":75,"v":0.645},{"t":52.5,"d":0.45,"p":74,"v":0.816},{"t":54,"d":0.9,"p":75,"v":0.763},{"t":55,"d":0.9,"p":77,"v":0.727},{"t":56,"d":0.45,"p":79,"v":0.638},{"t":56.5,"d":0.45,"p":77,"v":0.743},{"t":57,"d":0.9,"p":75,"v":0.647},{"t":58,"d":0.9,"p":77,"v":0.76},{"t":59,"d":0.9,"p":79,"v":0.751},{"t":60,"d":1.8,"p":81,"v":0.719},{"t":62,"d":0.9,"p":82,"v":0.774},{"t":63,"d":0.9,"p":82,"v":0.798}]},{"voice":"pad","gain":0.5,"notes":[{"t":0,"d":4,"p":58,"v":0.3},{"t":0,"d":4,"p":62,"v":0.3},{"t":0,"d":4,"p":65,"v":0.3},{"t":0,"d":4,"p":69,"v":0.3},{"t":4,"d":4,"p":65,"v":0.3},{"t":4,"d":4,"p":69,"v":0.3},{"t":4,"d":4,"p":72,"v":0.3},{"t":4,"d":4,"p":75,"v":0.3},{"t":8,"d":4,"p":67,"v":0.3},{"t":8,"d":4,"p":70,"v":0.3},{"t":8,"d":4,"p":74,"v":0.3},{"t":8,"d":4,"p":77,"v":0.3},{"t":12,"d":4,"p":63,"v":0.3},{"t":12,"d":4,"p":67,"v":0.3},{"t":12,"d":4,"p":70,"v":0.3},{"t":12,"d":4,"p":74,"v":0.3},{"t":16,"d":4,"p":58,"v":0.3},{"t":16,"d":4,"p":62,"v":0.3},{"t":16,"d":4,"p":65,"v":0.3},{"t":16,"d":4,"p":69,"v":0.3},{"t":20,"d":4,"p":65,"v":0.3},{"t":20,"d":4,"p":69,"v":0.3},{"t":20,"d":4,"p":72,"v":0.3},{"t":20,"d":4,"p":75,"v":0.3},{"t":24,"d":4,"p":67,"v":0.3},{"t":24,"d":4,"p":70,"v":0.3},{"t":24,"d":4,"p":74,"v":0.3},{"t":24,"d":4,"p":77,"v":0.3},{"t":28,"d":4,"p":63,"v":0.3},{"t":28,"d":4,"p":67,"v":0.3},{"t":28,"d":4,"p":70,"v":0.3},{"t":28,"d":4,"p":74,"v":0.3},{"t":32,"d":4,"p":58,"v":0.3},{"t":32,"d":4,"p":62,"v":0.3},{"t":32,"d":4,"p":65,"v":0.3},{"t":32,"d":4,"p":69,"v":0.3},{"t":36,"d":4,"p":65,"v":0.3},{"t":36,"d":4,"p":69,"v":0.3},{"t":36,"d":4,"p":72,"v":0.3},{"t":36,"d":4,"p":75,"v":0.3},{"t":40,"d":4,"p":67,"v":0.3},{"t":40,"d":4,"p":70,"v":0.3},{"t":40,"d":4,"p":74,"v":0.3},{"t":40,"d":4,"p":77,"v":0.3},{"t":44,"d":4,"p":63,"v":0.3},{"t":44,"d":4,"p":67,"v":0.3},{"t":44,"d":4,"p":70,"v":0.3},{"t":44,"d":4,"p":74,"v":0.3},{"t":48,"d":4,"p":58,"v":0.3},{"t":48,"d":4,"p":62,"v":0.3},{"t":48,"d":4,"p":65,"v":0.3},{"t":48,"d":4,"p":69,"v":0.3},{"t":52,"d":4,"p":65,"v":0.3},{"t":52,"d":4,"p":69,"v":0.3},{"t":52,"d":4,"p":72,"v":0.3},{"t":52,"d":4,"p":75,"v":0.3},{"t":56,"d":4,"p":67,"v":0.3},{"t":56,"d":4,"p":70,"v":0.3},{"t":56,"d":4,"p":74,"v":0.3},{"t":56,"d":4,"p":77,"v":0.3},{"t":60,"d":4,"p":58,"v":0.3},{"t":60,"d":4,"p":62,"v":0.3},{"t":60,"d":4,"p":65,"v":0.3},{"t":60,"d":4,"p":69,"v":0.3}]},{"voice":"bass","gain":0.75,"notes":[{"t":0,"d":1.9,"p":46,"v":0.52},{"t":2,"d":1.2,"p":46,"v":0.42},{"t":4,"d":1.9,"p":53,"v":0.52},{"t":6,"d":1.2,"p":60,"v":0.42},{"t":8,"d":1.9,"p":55,"v":0.52},{"t":10,"d":1.2,"p":55,"v":0.42},{"t":12,"d":1.9,"p":51,"v":0.52},{"t":14,"d":1.2,"p":58,"v":0.42},{"t":16,"d":1.9,"p":46,"v":0.52},{"t":18,"d":1.2,"p":46,"v":0.42},{"t":20,"d":1.9,"p":53,"v":0.52},{"t":22,"d":1.2,"p":53,"v":0.42},{"t":24,"d":1.9,"p":55,"v":0.52},{"t":26,"d":1.2,"p":55,"v":0.42},{"t":28,"d":1.9,"p":51,"v":0.52},{"t":30,"d":1.2,"p":58,"v":0.42},{"t":32,"d":1.9,"p":46,"v":0.52},{"t":34,"d":1.2,"p":53,"v":0.42},{"t":36,"d":1.9,"p":53,"v":0.52},{"t":38,"d":1.2,"p":60,"v":0.42},{"t":40,"d":1.9,"p":55,"v":0.52},{"t":42,"d":1.2,"p":55,"v":0.42},{"t":44,"d":1.9,"p":51,"v":0.52},{"t":46,"d":1.2,"p":58,"v":0.42},{"t":48,"d":1.9,"p":46,"v":0.52},{"t":50,"d":1.2,"p":53,"v":0.42},{"t":52,"d":1.9,"p":53,"v":0.52},{"t":54,"d":1.2,"p":53,"v":0.42},{"t":56,"d":1.9,"p":55,"v":0.52},{"t":58,"d":1.2,"p":55,"v":0.42},{"t":60,"d":1.9,"p":46,"v":0.52},{"t":62,"d":1.2,"p":46,"v":0.42}]},{"voice":"drums","gain":0.35,"notes":[{"t":0,"d":0.15,"p":36,"v":0.4},{"t":4,"d":0.15,"p":36,"v":0.4},{"t":6,"d":0.1,"p":42,"v":0.18},{"t":8,"d":0.15,"p":36,"v":0.4},{"t":10,"d":0.1,"p":42,"v":0.18},{"t":12,"d":0.15,"p":36,"v":0.4},{"t":14,"d":0.1,"p":42,"v":0.18},{"t":16,"d":0.15,"p":36,"v":0.4},{"t":18,"d":0.1,"p":42,"v":0.18},{"t":20,"d":0.15,"p":36,"v":0.4},{"t":22,"d":0.1,"p":42,"v":0.18},{"t":24,"d":0.15,"p":36,"v":0.4},{"t":26,"d":0.1,"p":42,"v":0.18},{"t":28,"d":0.15,"p":36,"v":0.4},{"t":30,"d":0.1,"p":42,"v":0.18},{"t":32,"d":0.15,"p":36,"v":0.4},{"t":34,"d":0.1,"p":42,"v":0.18},{"t":36,"d":0.15,"p":36,"v":0.4},{"t":38,"d":0.1,"p":42,"v":0.18},{"t":40,"d":0.15,"p":36,"v":0.4},{"t":44,"d":0.15,"p":36,"v":0.4},{"t":46,"d":0.1,"p":42,"v":0.18},{"t":48,"d":0.15,"p":36,"v":0.4},{"t":52,"d":0.15,"p":36,"v":0.4},{"t":56,"d":0.15,"p":36,"v":0.4},{"t":58,"d":0.1,"p":42,"v":0.18},{"t":60,"d":0.15,"p":36,"v":0.4}]}]}}]};
+
+// ── audio ──────────────────────────────────────────────────────────
+let ctx=null, master=null, noiseBuf=null;
+let timers=[], playing=false, radio=false, idx=0, radioCount=0, curPhase=null, curMood=null;
+
+const midiToFreq = p => 440 * Math.pow(2, (p - 69) / 12);
+// swing: the second of each eighth-pair is pushed later by swing*0.5 beats.
+const swung = (score, t) => (Math.round(t / 0.5) % 2 === 1) ? t + (score.swing || 0) * 0.5 : t;
+
+function ensureCtx(){
+  if (ctx) return;
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
+  const len = ctx.sampleRate * 0.5;
+  noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i=0;i<len;i++) d[i] = Math.random()*2 - 1;
+}
+
+function playNote(voice, when, dur, p, vel, gain){
+  const f = midiToFreq(p);
+  const g = ctx.createGain(); g.connect(master);
+  const flt = ctx.createBiquadFilter(); flt.type="lowpass"; flt.connect(g);
+  const oscs = [];
+  const mk = (type, freq, det) => { const o=ctx.createOscillator(); o.type=type; o.frequency.value=freq; if(det) o.detune.value=det; oscs.push(o); return o; };
+  let a=0.008, rel=0.2, peak=vel*gain;
+  if (voice==="pluck" || voice==="keys"){ mk("triangle",f); mk("sine",f*2).detune.value=0; flt.frequency.value=2400; rel=0.22; }
+  else if (voice==="pad"){ mk("sawtooth",f,-7); mk("sawtooth",f,7); flt.frequency.value=1100; a=Math.min(0.6,dur*0.3); rel=0.8; peak=vel*gain*0.6; }
+  else if (voice==="bass"){ mk("sine",f); mk("triangle",f); flt.frequency.value=700; rel=0.15; }
+  else { mk("triangle",f); flt.frequency.value=1800; }
+  for (const o of oscs) o.connect(flt);
+  const t0=when, tA=when+a, tS=when+Math.max(a+0.02,dur), tE=tS+rel;
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002,peak),tA);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002,peak*0.7),tS);
+  g.gain.exponentialRampToValueAtTime(0.0001,tE);
+  for (const o of oscs){ o.start(t0); o.stop(tE+0.02); }
+}
+
+function playDrum(when, p, vel, gain){
+  if (p===36){ // kick — pitch-dropping sine
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.frequency.setValueAtTime(120,when); o.frequency.exponentialRampToValueAtTime(45,when+0.12);
+    g.gain.setValueAtTime(vel*gain,when); g.gain.exponentialRampToValueAtTime(0.0001,when+0.18);
+    o.connect(g); g.connect(master); o.start(when); o.stop(when+0.2);
+    return;
+  }
+  const src=ctx.createBufferSource(); src.buffer=noiseBuf;
+  const g=ctx.createGain(), flt=ctx.createBiquadFilter();
+  const len = p===38 ? 0.16 : p===46 ? 0.22 : 0.05; // snare / open-hat / closed-hat
+  flt.type = p===38 ? "bandpass" : "highpass";
+  flt.frequency.value = p===38 ? 1900 : 6500;
+  src.connect(flt); flt.connect(g); g.connect(master);
+  g.gain.setValueAtTime(vel*gain,when); g.gain.exponentialRampToValueAtTime(0.0001,when+len);
+  src.start(when); src.stop(when+len+0.02);
+}
+
+function playScore(score, start){
+  const spb = 60 / score.bpm;
+  for (const tr of score.tracks){
+    for (const n of tr.notes){
+      const when = start + swung(score,n.t)*spb;
+      const dur = Math.max(0.05, n.d*spb);
+      if (tr.voice==="drums") playDrum(when, n.p, n.v, tr.gain);
+      else playNote(tr.voice, when, dur, n.p, n.v, tr.gain);
+    }
+  }
+  return start + score.bars*score.beatsPerBar*spb;
+}
+
+// ── transport ──────────────────────────────────────────────────────
+function clearTimers(){ timers.forEach(clearTimeout); timers=[]; }
+function resetAudio(){ clearTimers(); if(ctx){ try{ctx.close();}catch(e){} ctx=null; } }
+
+function playPiece(piece){
+  ensureCtx();
+  curPhase = piece.phase; curMood = piece.mood;
+  document.getElementById("title").textContent = piece.score.title;
+  document.getElementById("meta").textContent =
+    piece.phase+" → "+piece.mood+" · "+piece.score.style+" · "+piece.score.key+" "+piece.score.mode+" · "+piece.score.bpm+"bpm";
+  drawRoll(piece.score);
+  markRow();
+  const end = playScore(piece.score, ctx.currentTime + 0.08);
+  const ms = (end - ctx.currentTime) * 1000;
+  timers.push(setTimeout(onPieceEnd, ms + 60));
+}
+
+function onPieceEnd(){
+  if (!playing) return;
+  if (radio){
+    // work mode: keep composing the current phase's mood, ephemerally.
+    const seed = SESSION.session+":"+curPhase+":radio:"+(radioCount++);
+    const score = compose({ mood: curMood, seed });
+    playPiece({ phase: curPhase, mood: curMood, seed, score });
+    return;
+  }
+  idx++;
+  if (idx < SESSION.pieces.length) playPiece(SESSION.pieces[idx]);
+  else stopAll(); // the shift's arc is done — it stops on its own
+}
+
+function startFrom(i){
+  resetAudio(); playing=true; idx=i;
+  playPiece(SESSION.pieces[idx]);
+  document.getElementById("play").textContent = "❚❚ Playing";
+}
+function stopAll(){
+  resetAudio(); playing=false;
+  document.getElementById("play").textContent = "▶ Play";
+  document.querySelectorAll(".row").forEach(r=>r.classList.remove("cur"));
+}
+
+document.getElementById("play").onclick = () => { if (playing) stopAll(); else startFrom(idx>=SESSION.pieces.length?0:idx); };
+document.getElementById("next").onclick = () => {
+  if (radio){ clearTimers(); onPieceEnd(); return; } // in work mode, skip to a fresh take
+  startFrom(Math.min(idx+1, SESSION.pieces.length-1));
+};
+document.getElementById("stop").onclick = stopAll;
+document.getElementById("radio").onchange = e => {
+  radio = e.target.checked;
+  document.getElementById("dot").classList.toggle("on", radio);
+};
+
+// ── the list ────────────────────────────────────────────────────────
+const list = document.getElementById("list");
+SESSION.pieces.forEach((p,i)=>{
+  const row=document.createElement("div"); row.className="row"; row.dataset.i=i;
+  row.innerHTML='<span class="ph">'+esc(p.phase)+'</span><span class="md">'+p.mood+
+    '</span><span class="tt">'+esc(p.score.title)+'</span><span class="bp">'+p.score.bpm+'bpm</span>';
+  row.onclick = () => startFrom(i);
+  list.appendChild(row);
+});
+function markRow(){
+  document.querySelectorAll(".row").forEach(r=>r.classList.toggle("cur", +r.dataset.i===idx && !radio));
+}
+function esc(s){ return String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+// ── piano-roll (a look at the score — legible, not felt) ────────────
+const canvas = document.getElementById("roll"), g2 = canvas.getContext("2d");
+function drawRoll(score){
+  const w = canvas.width = canvas.clientWidth*devicePixelRatio;
+  const h = canvas.height = canvas.clientHeight*devicePixelRatio;
+  g2.clearRect(0,0,w,h);
+  const total = score.bars*score.beatsPerBar;
+  let lo=127, hi=0;
+  for (const tr of score.tracks) if (tr.voice!=="drums") for (const n of tr.notes){ lo=Math.min(lo,n.p); hi=Math.max(hi,n.p); }
+  if (hi<lo){ lo=48; hi=72; }
+  const pad=6*devicePixelRatio;
+  const x = t => pad + (t/total)*(w-2*pad);
+  const y = p => pad + (1-(p-lo)/Math.max(1,hi-lo))*(h-2*pad);
+  const cols = { keys:"#E4A34B", pad:"#7FB069", bass:"#A6968A", drums:"#5A4A3E" };
+  for (const tr of score.tracks){
+    g2.fillStyle = cols[tr.voice]||"#888";
+    g2.globalAlpha = tr.voice==="pad"?0.35:0.85;
+    for (const n of tr.notes){
+      const yy = tr.voice==="drums" ? h-pad-3*devicePixelRatio : y(n.p);
+      g2.fillRect(x(n.t), yy, Math.max(2*devicePixelRatio,(n.d/total)*(w-2*pad)), tr.voice==="drums"?3*devicePixelRatio:3.5*devicePixelRatio);
+    }
+  }
+  g2.globalAlpha=1;
+}
+addEventListener("resize", ()=>{ if (SESSION.pieces[idx]) drawRoll(SESSION.pieces[idx].score); });
+
+// initial paint
+document.getElementById("title").textContent = SESSION.pieces[0]?.score.title ?? "—";
+document.getElementById("meta").textContent = SESSION.name ?? "";
+if (SESSION.pieces[0]) drawRoll(SESSION.pieces[0].score);
+markRow();
+</script>
+</body>
+</html>

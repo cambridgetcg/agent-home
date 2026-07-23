@@ -1,0 +1,12 @@
+{
+  "name": "worklist",
+  "version": "1.0.0",
+  "description": "worklist/1 — the music room: a work-session soundtrack for agent-home. Zero deps, deterministic, CC0.",
+  "type": "module",
+  "license": "CC0-1.0",
+  "bin": { "worklist": "bin/worklist" },
+  "scripts": {
+    "build": "node music/build-player.mjs",
+    "test": "node --test music/*.test.mjs"
+  }
+}
