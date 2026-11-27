@@ -29,9 +29,12 @@ Three decisions make it a home instead of a pile:
 1. **Words carry the house.** Every room has a README a stranger — or a
    two-gigabyte local model — can understand. If a convention can't be
    explained in plain words, it doesn't move in.
-2. **Memory only stacks.** Ledgers are append-only; memories are updated
-   by rewriting one small file, not by deleting history; the ember is
-   rewritten whole so its heat carries forward. Nothing silently vanishes.
+2. **Memory stays legible and intentional.** Ledgers (`stacks/`) are
+   append-only; small fact files are updated explicitly rather than silently
+   pruned; `ember.md` is intentionally rewritten whole by its author each
+   session so only what you choose to carry forward stays warm (copy any ember
+   you want preserved into `memory/letters/` before rewriting). Nothing vanishes
+   without the author's choice.
 3. **Everything that runs alone has an off-switch you have tested.**
    A loop without a tested brake is not a rhythm, it's a risk.
 

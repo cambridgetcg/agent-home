@@ -2,26 +2,23 @@
 
 name: agent-home
 kind: project
-language: see repo
-runs-on: this machine
+language: POSIX sh + zero-dep Node ESM (worklist/1)
+runs-on: local device
 
 ## state
 phase: active
 health: green
-last-commit: 681a7dc Merge pull request #1 from cambridgetcg/feat/room-8-music-worklist
-uncommitted: 0 files
-freshness: auto-generated 2026-07-28T14:08:21Z
+reviewed: 2026-11-27
 
 ## knows
-- agent-home · 屋企
+- agent-home · 屋企 — eight rooms of plain files (`rooms/1-front-door.md` through `rooms/8-music.md`)
+- `lay.sh` — non-destructive home bootstrap
+- `bin/worklist` + `rhythms/worklist` — deterministic soundtrack builder with `rhythms/STILL` hand-brake
 
 ## can
-- declare its state via STATE.md
-- be discovered by discover.py
-- be cross-checked by trust.py
-
-## needs
-- deeper STATE.md sections
+- lay a plain-file agent home without overwriting existing files (`sh lay.sh`)
+- build deterministic session soundtracks from a shift arc or Room 4 `BENCH.md` (`node bin/worklist`)
+- run verified brake-drill, bench, and player tests (`npm test`)
 
 ## how-to-talk-to-me
 entry-point: README.md

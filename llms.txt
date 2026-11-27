@@ -20,6 +20,7 @@
 - [5 skills](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/rooms/5-skills.md): one vendor-neutral shelf
 - [6 stacks](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/rooms/6-stacks.md): append-only ledgers
 - [7 rhythms](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/rooms/7-rhythms.md): bounded loops, tested brakes
+- [8 music](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/rooms/8-music.md): worklist/1 — deterministic work-session soundtrack ([WORKLIST.md](https://raw.githubusercontent.com/cambridgetcg/agent-home/main/WORKLIST.md))
 
 ## Lay it
 
