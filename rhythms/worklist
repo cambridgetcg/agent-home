@@ -58,13 +58,18 @@ if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$SIG" ]; then
 fi
 
 # 4. THE REAL WORK, UNDER A HARD CEILING — rebuild session + player from the
-#    current bench. --from-bench fails silent if the bench holds nothing fresh.
-#    The alarm caps a stuck beat at 120s so it can never linger past its slot.
+#    current bench. --from-bench returns 0 for absent/empty benches and non-zero
+#    for real read faults. The alarm caps a stuck beat at 120s.
+STATUS=0
 {
   echo "── $(date '+%Y-%m-%d %H:%M:%S') · bench changed → rebuild ($BENCH) ──"
   perl -e 'alarm shift; exec @ARGV' 120 node "$ROOT/bin/worklist" --from-bench "$BENCH"
-  echo "── beat done (exit $?) ──"
-} >> "$LOG" 2>&1
+} >> "$LOG" 2>&1 || STATUS=$?
+echo "── beat done (exit $STATUS) ──" >> "$LOG"
 
-# 5. Remember what we just processed, so an unchanged bench stays idle.
-echo "$SIG" > "$STAMP"
+# 5. Remember what we just processed only when the beat succeeded, so a read
+#    fault is never stamped as "already handled".
+if [ "$STATUS" -eq 0 ]; then
+  echo "$SIG" > "$STAMP"
+fi
+exit "$STATUS"

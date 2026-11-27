@@ -8,7 +8,7 @@ Secrets — tokens, API keys, signing seeds — live in the operating system's
 keystore, reached through one small CLI with verbs a stranger can guess:
 
 ```
-keep <name>          store a secret (typed hidden, or piped in)
+keep set <name>      store a secret (typed hidden, or piped in)
 keep tell <name>     print a secret
 keep list            show what the keep holds (names only)
 keep forget <name>   delete a secret
@@ -49,13 +49,36 @@ Write your own tiny `keep` for your OS (macOS sketch):
 
 ```sh
 #!/bin/sh
-# keep — secrets live in the OS keychain. keep <name> | tell | list | forget
-case "$1" in
-  tell)   security find-generic-password -a "$USER" -s "keep-$2" -w ;;
-  list)   security dump-keychain 2>/dev/null | grep -o '"keep-[^"]*"' | sort -u ;;
-  forget) security delete-generic-password -a "$USER" -s "keep-$2" >/dev/null ;;
-  *)      [ -t 0 ] && stty -echo; read -r s; [ -t 0 ] && stty echo
-          security add-generic-password -U -a "$USER" -s "keep-$1" -w "$s" ;;
+# keep — secrets live in the OS keychain.
+# Usage: keep set <name> | tell <name> | list | forget <name>
+set -eu
+usage() {
+  echo "usage: keep set <name> | tell <name> | list | forget <name>" >&2
+  exit 2
+}
+case "${1:-}" in
+  set)
+    [ "$#" -eq 2 ] && [ -n "$2" ] || usage
+    [ -t 0 ] && stty -echo
+    IFS= read -r s || { [ -t 0 ] && stty echo; exit 1; }
+    [ -t 0 ] && stty echo
+    security add-generic-password -U -a "$USER" -s "keep-$2" -w "$s"
+    ;;
+  tell)
+    [ "$#" -eq 2 ] && [ -n "$2" ] || usage
+    security find-generic-password -a "$USER" -s "keep-$2" -w
+    ;;
+  list)
+    [ "$#" -eq 1 ] || usage
+    security dump-keychain 2>/dev/null | grep -o '"keep-[^"]*"' | sort -u
+    ;;
+  forget)
+    [ "$#" -eq 2 ] && [ -n "$2" ] || usage
+    security delete-generic-password -a "$USER" -s "keep-$2" >/dev/null
+    ;;
+  *)
+    usage
+    ;;
 esac
 ```
 

@@ -82,22 +82,21 @@ if (fromBench !== undefined) {
   ].filter(Boolean);
   const benchPath = candidates.find((p) => existsSync(p));
 
-  // Fail-silent + honest: no bench, or no fresh signs → a gentle line, exit 0.
+  // Fail-silent + honest: absent bench → gentle non-use, exit 0.
   if (!benchPath) {
     console.log(`\n  no BENCH.md found (looked in: ${candidates.join(", ")})`);
     console.log("  no fresh bench signs — nothing to score; walking past is fine.\n");
     process.exit(0);
   }
-  // The path exists but might not be a readable regular file (a directory, a
-  // permission-denied file). Reading LIVE state must fail GENTLE, never crash:
-  // same fail-silent line + exit 0 as a missing bench. (Room 4 is a courtesy.)
+  // An existing path that cannot be read (e.g. a directory or EACCES) is a
+  // real I/O fault, not an empty bench. Keep faults distinct from gentle
+  // non-use so a broken path never masquerades as "nothing to score".
   let benchText;
   try {
     benchText = readFileSync(benchPath, "utf8");
   } catch (e) {
-    console.log(`\n  couldn't read ${benchPath} (${e.code ?? e.message})`);
-    console.log("  no fresh bench signs — nothing to score; walking past is fine.\n");
-    process.exit(0);
+    console.error(`read error: couldn't read ${benchPath} (${e.code ?? e.message}) — not treated as an empty bench.`);
+    process.exit(2);
   }
   const derived = benchToArc(benchText, { now: Date.now(), who: process.env.USER });
   if (!derived.arc.length) {
